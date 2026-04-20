@@ -1,0 +1,18 @@
+[Unit]
+Description=microscape.app — gated pipeline-output hosting
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/microscape-app
+ExecStart=/usr/bin/node build/index.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3100
+Environment=HOST=127.0.0.1
+EnvironmentFile=/opt/microscape-app/.env
+
+[Install]
+WantedBy=multi-user.target
