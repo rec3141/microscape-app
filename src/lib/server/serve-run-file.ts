@@ -149,9 +149,17 @@ export function serveRunFile(
 	const target = resolve(dataPath, sub);
 	if (!isUnder(target, dataPath)) throw error(404, 'Not found');
 
-	// Locate either the target file or, if the client accepts gzip and the
-	// bare target is missing, the .gz alongside it. The returned `served`
-	// path is what nginx / Node will actually read from disk.
+	// Locate the file to serve. We support two flavors of graceful
+	// substitution so the viz SPA works regardless of which side of the
+	// `.gz` pair the lab ships:
+	//
+	//   1. Request `foo.json`; serve `foo.json.gz` as the logical type with
+	//      Content-Encoding: gzip. Replicates nginx's `gzip_static`.
+	//
+	//   2. Request `foo.json.gz`; serve plain `foo.json` and let nginx
+	//      compress on the wire (gzip_types application/json is matched in
+	//      the server block). Skips the 404 noise from the SPA's
+	//      prefer-.gz-first fetcher when the lab didn't pre-compress.
 	let served = target;
 	let stat = safeStat(target);
 	let resolved = resolveContent(target);
@@ -161,10 +169,20 @@ export function serveRunFile(
 		if (gzStat) {
 			served = gz;
 			stat = gzStat;
-			// Keep the logical Content-Type from the bare target, but add
-			// Content-Encoding: gzip so the browser decompresses the .gz
-			// on the wire. (resolveContent(gz) would re-derive both.)
 			resolved = { contentType: resolved.contentType, contentEncoding: 'gzip' };
+		}
+	}
+	if (!stat && target.toLowerCase().endsWith('.gz')) {
+		const plain = target.slice(0, -3);
+		const plainStat = safeStat(plain);
+		if (plainStat) {
+			served = plain;
+			stat = plainStat;
+			// Content-Type follows the plain file's extension. No
+			// Content-Encoding from the app — nginx's runtime gzip handles
+			// compression when the client accepts it, so this path keeps
+			// the X-Accel-Redirect fast path intact.
+			resolved = resolveContent(plain);
 		}
 	}
 	if (!stat) throw error(404, 'Not found');
