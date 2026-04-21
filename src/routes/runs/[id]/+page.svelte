@@ -52,9 +52,15 @@
 	<section class="rounded border border-slate-800 bg-slate-900/40 p-4 space-y-3">
 		<h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Artifacts</h2>
 		<p class="text-sm text-slate-500">
-			The gated file endpoint for this run will live at
-			<code class="text-slate-300 bg-slate-800 px-1 rounded">/runs/{data.run.id}/files/&lt;path&gt;</code>.
-			File delivery is being wired up — once live, the per-run SPA dashboard will be reachable here.
+			The run's output directory is served under
+			<code class="text-slate-300 bg-slate-800 px-1 rounded">/runs/{data.run.id}/files/</code>
+			with every request gated by your current access.
 		</p>
+		<div class="flex gap-3">
+			<a
+				href="/runs/{data.run.id}/files/"
+				class="inline-block px-3 py-2 bg-ocean-600 text-white rounded hover:bg-ocean-500 transition-colors text-sm font-medium"
+			>Open dashboard →</a>
+		</div>
 	</section>
 </div>
