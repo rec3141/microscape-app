@@ -151,14 +151,15 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 };
 
-/** Pipe a Web ReadableStream into `tar -xzf - -C <tmpDir>`. Rejects
- *  absolute paths in the archive (tar does this by default with
- *  --no-absolute-filenames, restated here for clarity). */
+/** Pipe a Web ReadableStream into `tar -xzf - -C <tmpDir>`. GNU tar's
+ *  default behavior strips leading `/` from paths and refuses `..`
+ *  traversal, so we don't need extra flags beyond --no-same-owner
+ *  (extract as the running user, not the tarball's uid/gid). */
 function extractTarGz(body: ReadableStream<Uint8Array>, tmpDir: string): Promise<void> {
 	return new Promise((resolveP, rejectP) => {
 		const proc = spawn(
 			'tar',
-			['--no-same-owner', '--no-absolute-filenames', '-xzf', '-', '-C', tmpDir],
+			['--no-same-owner', '-xzf', '-', '-C', tmpDir],
 			{ stdio: ['pipe', 'ignore', 'pipe'] }
 		);
 		let stderr = '';
