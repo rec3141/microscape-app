@@ -41,9 +41,11 @@ export const trailingSlash = 'ignore';
  */
 export const GET: RequestHandler = async ({ params, locals, request, url }) => {
 	// Redirect /<slug> → /<slug>/ so ./ relative URLs in the SPA resolve
-	// under the slug, not the domain root. Only applies when there's no
-	// further subpath (asset/data requests already resolve correctly).
-	if (!params.subpath && !url.pathname.endsWith('/')) {
+	// under the slug, not the domain root. Skip if the slug looks like a
+	// file (has a dot), so bare requests like /favicon.ico don't become
+	// /favicon.ico/ and 404 — those fall straight through to the
+	// not-a-run 404 below.
+	if (!params.subpath && !url.pathname.endsWith('/') && !params.slug!.includes('.')) {
 		return new Response(null, {
 			status: 308,
 			headers: { Location: url.pathname + '/' + url.search }
