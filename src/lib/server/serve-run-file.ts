@@ -45,6 +45,31 @@ function contentTypeFor(path: string): string {
 	return MIME[extname(path).toLowerCase()] ?? 'application/octet-stream';
 }
 
+/**
+ * Resolve the logical content-type + transport encoding for a path.
+ *
+ * When the file ends in `.X.gz` where `.X` is a known type (e.g. .json.gz,
+ * .tsv.gz, .html.gz), treat it as `X` content with `Content-Encoding: gzip`
+ * — the browser will decode transparently and callers using
+ * `response.json()` / `response.text()` get the real content.
+ *
+ * When the inner extension is NOT known (e.g. `.tar.gz`, `.bam.gz`, a bare
+ * `.gz` with no inner hint), return `application/gzip` and no encoding —
+ * the client gets raw gzipped bytes and can save/download as-is.
+ */
+function resolveContent(path: string): { contentType: string; contentEncoding: string | null } {
+	const lower = path.toLowerCase();
+	if (lower.endsWith('.gz')) {
+		const inner = lower.slice(0, -3);
+		const innerExt = extname(inner);
+		if (innerExt && MIME[innerExt] && innerExt !== '.gz') {
+			return { contentType: MIME[innerExt], contentEncoding: 'gzip' };
+		}
+		return { contentType: 'application/gzip', contentEncoding: null };
+	}
+	return { contentType: MIME[extname(lower)] ?? 'application/octet-stream', contentEncoding: null };
+}
+
 function isUnder(child: string, parent: string): boolean {
 	if (child === parent) return true;
 	return child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
@@ -96,24 +121,24 @@ export function serveRunFile(
 	// bare target is missing, the .gz alongside it. The returned `served`
 	// path is what nginx / Node will actually read from disk.
 	let served = target;
-	let contentEncoding: string | null = null;
 	let stat = safeStat(target);
+	let resolved = resolveContent(target);
 	if (!stat && acceptsGzip(headers.acceptEncoding)) {
 		const gz = target + '.gz';
 		const gzStat = safeStat(gz);
 		if (gzStat) {
 			served = gz;
-			contentEncoding = 'gzip';
 			stat = gzStat;
+			// Keep the logical Content-Type from the bare target, but add
+			// Content-Encoding: gzip so the browser decompresses the .gz
+			// on the wire. (resolveContent(gz) would re-derive both.)
+			resolved = { contentType: resolved.contentType, contentEncoding: 'gzip' };
 		}
 	}
 	if (!stat) throw error(404, 'Not found');
 
-	// Content-Type is derived from the LOGICAL target, not `served`, so a
-	// gzipped `read_explorer.json.gz` is labeled as `application/json`
-	// with `Content-Encoding: gzip` rather than `application/gzip` (the
-	// latter would make the browser download instead of decompressing).
-	const ct = contentTypeFor(target);
+	const ct = resolved.contentType;
+	const contentEncoding = resolved.contentEncoding;
 	const cacheControl = run.is_public ? 'public, max-age=300' : 'private, max-age=0';
 
 	const xAccelPrefix = env.X_ACCEL_PREFIX;
