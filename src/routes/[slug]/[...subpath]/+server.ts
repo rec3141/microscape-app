@@ -5,15 +5,20 @@ import { requireUser } from '$lib/server/guards';
 import { serveRunFile } from '$lib/server/serve-run-file';
 
 /**
- * `trailingSlash = 'always'` makes /<slug> redirect to /<slug>/ instead of
- * the SvelteKit default which strips the slash. Without a trailing slash
- * on the document URL, the SPA's relative asset references (./assets/…,
- * emitted by `vite build --base ./`) resolve against the domain root —
- * e.g. /genice_ci references become /assets/… — and every asset 404s.
- * Note: SvelteKit skips this normalization for paths with a file
- * extension, so /<slug>/assets/index.js still serves directly.
+ * SvelteKit's default trailingSlash='never' strips /<slug>/ down to
+ * /<slug>, which breaks the SPA's relative asset refs (./assets/…
+ * emitted by `vite build --base ./`): without a trailing slash on the
+ * document URL, the browser treats /<slug> as a file at the root, and
+ * ./assets/index.js resolves to /assets/index.js (404).
+ *
+ * Setting 'always' would fix /<slug> → /<slug>/ but also wrongly
+ * appends a slash to /<slug>/assets/foo.js, breaking every asset
+ * fetch. So we use 'ignore' (no automatic normalization either way)
+ * and handle the one case we care about in the handler below: the
+ * SPA root `/<slug>` with no subpath gets a 308 to `/<slug>/`. Every
+ * other URL (with file extension or subpath) is served as-is.
  */
-export const trailingSlash = 'always';
+export const trailingSlash = 'ignore';
 
 /**
  * Slug-based alias for /runs/[id]/files/[...subpath].
@@ -34,7 +39,17 @@ export const trailingSlash = 'always';
  * ordering also ensures a more-specific route (e.g. /settings) always wins
  * over this catch-all.
  */
-export const GET: RequestHandler = async ({ params, locals, request }) => {
+export const GET: RequestHandler = async ({ params, locals, request, url }) => {
+	// Redirect /<slug> → /<slug>/ so ./ relative URLs in the SPA resolve
+	// under the slug, not the domain root. Only applies when there's no
+	// further subpath (asset/data requests already resolve correctly).
+	if (!params.subpath && !url.pathname.endsWith('/')) {
+		return new Response(null, {
+			status: 308,
+			headers: { Location: url.pathname + '/' + url.search }
+		});
+	}
+
 	const user = requireUser(locals);
 	const db = getDb();
 
