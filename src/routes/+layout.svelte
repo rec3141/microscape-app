@@ -25,7 +25,7 @@
 	</div>
 	<FeedbackForm />
 	<footer class="py-4 text-center text-xs text-slate-600 flex items-center justify-center gap-3">
-		<span>microscape.app &middot; gated access to pipeline outputs</span>
+		<span>microscape.app &middot; pipeline dashboards</span>
 		<a href="/privacy" class="hover:text-ocean-400 transition-colors">Privacy</a>
 		<a
 			href="https://github.com/rec3141/microscape-app"

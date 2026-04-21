@@ -21,12 +21,22 @@ const optionalLongText = z.preprocess(
 const boolish = z.union([z.boolean(), z.literal(0), z.literal(1)]).transform((v) => (v ? 1 : 0));
 
 // Slugs are URL-safe run identifiers. Lowercase, alnum + dashes, 1..64 chars.
+// A run's slug doubles as a top-level path segment (so `/chesterfield/` works
+// as an alias for `/runs/<id>/files/`), which means slugs must not collide
+// with any top-level route or static asset path the app owns.
+const RESERVED_SLUGS = new Set([
+	'settings', 'auth', 'api', 'runs', 'account', 'privacy', 'admin',
+	'_app', '_protected', 'favicon.ico', 'favicon.png', 'manifest.json',
+	'robots.txt'
+]);
+
 const slug = z
 	.string()
 	.trim()
 	.min(1)
 	.max(64)
-	.regex(/^[a-z0-9][a-z0-9-]*$/, 'slug must be lowercase alnum with optional dashes');
+	.regex(/^[a-z0-9][a-z0-9-]*$/, 'slug must be lowercase alnum with optional dashes')
+	.refine((s) => !RESERVED_SLUGS.has(s), 'slug collides with a reserved path');
 
 // Absolute host-filesystem path. Must start with '/' and must NOT contain
 // relative segments — the gated file endpoint joins user-supplied subpaths

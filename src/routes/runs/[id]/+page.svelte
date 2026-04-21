@@ -53,12 +53,12 @@
 		<h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Artifacts</h2>
 		<p class="text-sm text-slate-500">
 			The run's output directory is served under
-			<code class="text-slate-300 bg-slate-800 px-1 rounded">/runs/{data.run.id}/files/</code>
-			with every request gated by your current access.
+			<code class="text-slate-300 bg-slate-800 px-1 rounded">/{data.run.slug}/</code>
+			for members of this lab.
 		</p>
 		<div class="flex gap-3">
 			<a
-				href="/runs/{data.run.id}/files/"
+				href="/{data.run.slug}/"
 				class="inline-block px-3 py-2 bg-ocean-600 text-white rounded hover:bg-ocean-500 transition-colors text-sm font-medium"
 			>Open dashboard →</a>
 		</div>

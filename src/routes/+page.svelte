@@ -32,7 +32,7 @@
 	<header class="space-y-1">
 		<h1 class="text-2xl font-semibold">Pipeline runs</h1>
 		<p class="text-sm text-slate-400">
-			Gated access to outputs from microscape-nf and danaseq pipelines.
+			Dashboards and artifacts from microscape-nf and danaseq pipelines.
 		</p>
 	</header>
 

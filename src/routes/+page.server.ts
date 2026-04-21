@@ -2,18 +2,16 @@ import type { PageServerLoad } from './$types';
 import { getDb } from '$lib/server/db';
 
 /**
- * Landing page: runs the signed-in user has access to.
+ * Landing page: runs in the caller's active lab, plus runs that have been
+ * explicitly shared with them via a `run_access` grant.
  *
- * A user sees a run when *any* of these hold:
- *   1. run.is_public = 1 (no ACL check at all)
- *   2. user is an active member of run.lab_id (implicit lab grant)
- *   3. user has a run_access row for the run (explicit cross-lab grant)
- *
- * `access_via` surfaces which of those three granted access so the UI can
- * render a chip ("public" / "lab" / "invited") explaining the row.
+ * We intentionally do NOT surface runs from OTHER labs the user is a
+ * member of — switching the active lab in the navbar is how they change
+ * what they see. Cross-lab public runs are reachable by URL (e.g. the
+ * slug alias route) but don't appear on every user's landing.
  */
 export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) return { runs: [] };
+	if (!locals.user || !locals.user.lab_id) return { runs: [] };
 	const db = getDb();
 
 	const runs = db.prepare(`
@@ -22,21 +20,21 @@ export const load: PageServerLoad = async ({ locals }) => {
 			p.slug AS pipeline_slug, p.name AS pipeline_name,
 			l.name AS lab_name, l.slug AS lab_slug,
 			CASE
-				WHEN r.is_public = 1 THEN 'public'
-				WHEN m.user_id IS NOT NULL THEN 'lab'
+				WHEN r.lab_id = ? THEN 'lab'
 				WHEN ra.user_id IS NOT NULL THEN 'invited'
 				ELSE NULL
 			END AS access_via
 		FROM runs r
 		JOIN pipelines p ON p.id = r.pipeline_id
 		JOIN labs l ON l.id = r.lab_id
-		LEFT JOIN lab_memberships m
-		  ON m.lab_id = r.lab_id AND m.user_id = ? AND m.status = 'active'
 		LEFT JOIN run_access ra
 		  ON ra.run_id = r.id AND ra.user_id = ?
-		WHERE r.is_public = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL
-		ORDER BY r.created_at DESC
-	`).all(locals.user.id, locals.user.id);
+		WHERE r.lab_id = ?
+		   OR ra.user_id IS NOT NULL
+		ORDER BY
+		  CASE WHEN r.lab_id = ? THEN 0 ELSE 1 END,
+		  r.created_at DESC
+	`).all(locals.user.lab_id, locals.user.id, locals.user.lab_id, locals.user.lab_id);
 
 	return { runs };
 };

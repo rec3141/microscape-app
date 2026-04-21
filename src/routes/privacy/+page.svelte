@@ -7,11 +7,11 @@
 	<p class="text-sm text-slate-500">Last updated: 2026-04-19</p>
 
 	<p>
-		microscape.app is a gatekeeper that issues permissioned access to the
-		outputs of sequencing pipelines (microscape-nf, danaseq). Each deployment
-		is operated by a single research group or consortium; this page describes
-		the practices of <strong>this</strong> deployment. Other instances of the
-		software may behave differently.
+		microscape.app hosts dashboards and artifacts produced by sequencing
+		pipelines (microscape-nf, danaseq) for authorized lab members. Each
+		deployment is operated by a single research group or consortium; this
+		page describes the practices of <strong>this</strong> deployment.
+		Other instances of the software may behave differently.
 	</p>
 
 	<h2 class="text-xl font-semibold text-white mt-6">What we store</h2>
