@@ -1,0 +1,150 @@
+import { error } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
+import { createReadStream, statSync } from 'fs';
+import { resolve, sep, extname } from 'path';
+import { Readable } from 'stream';
+
+/**
+ * Resolve a subpath under a run's data_path and return an HTTP response.
+ *
+ * Happy-path: emit `X-Accel-Redirect` into the internal nginx location so
+ * nginx delivers the bytes. When `X_ACCEL_PREFIX` / `RUNS_ROOT` aren't set
+ * (local dev), stream via `fs.createReadStream` instead.
+ *
+ * Transparent `.gz` fallback: when the client accepts gzip and the target
+ * file doesn't exist but `<target>.gz` does, serve that file with
+ * `Content-Encoding: gzip`. This replicates nginx's `gzip_static on`
+ * behavior and is required because viz data is shipped pre-compressed
+ * (data/read_explorer.json.gz etc.) and the SPA fetches the uncompressed
+ * name with `Accept-Encoding: gzip` expecting the server to substitute.
+ *
+ * Path safety: the resolved filesystem path is required to be inside
+ * `run.data_path`, and `run.data_path` itself is required to be inside
+ * `RUNS_ROOT` when that env var is set.
+ */
+
+const MIME: Record<string, string> = {
+	'.html': 'text/html; charset=utf-8',
+	'.js': 'application/javascript; charset=utf-8',
+	'.mjs': 'application/javascript; charset=utf-8',
+	'.css': 'text/css; charset=utf-8',
+	'.json': 'application/json; charset=utf-8',
+	'.tsv': 'text/tab-separated-values; charset=utf-8',
+	'.csv': 'text/csv; charset=utf-8',
+	'.txt': 'text/plain; charset=utf-8',
+	'.png': 'image/png',
+	'.jpg': 'image/jpeg',
+	'.jpeg': 'image/jpeg',
+	'.svg': 'image/svg+xml',
+	'.woff': 'font/woff',
+	'.woff2': 'font/woff2',
+	'.gz': 'application/gzip'
+};
+
+function contentTypeFor(path: string): string {
+	return MIME[extname(path).toLowerCase()] ?? 'application/octet-stream';
+}
+
+function isUnder(child: string, parent: string): boolean {
+	if (child === parent) return true;
+	return child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
+}
+
+function acceptsGzip(headerValue: string | null): boolean {
+	if (!headerValue) return false;
+	// Cheap accept-encoding check — handles the common `gzip`, `gzip, deflate`,
+	// and the rare `gzip;q=0` opt-out.
+	return /(?:^|,\s*)gzip(?:\s*;\s*q=0(?:\.0+)?\b)?/i.test(headerValue) &&
+		!/(?:^|,\s*)gzip\s*;\s*q=0(?:\.0+)?\b/i.test(headerValue);
+}
+
+interface Stat {
+	size: number;
+	mtime: Date;
+}
+
+function safeStat(path: string): Stat | null {
+	try {
+		const s = statSync(path);
+		if (!s.isFile()) return null;
+		return { size: s.size, mtime: s.mtime };
+	} catch (err) {
+		const code = (err as NodeJS.ErrnoException).code;
+		if (code && code !== 'ENOENT') console.error('[serve-run-file] stat', path, code);
+		return null;
+	}
+}
+
+export function serveRunFile(
+	run: { data_path: string; is_public: number },
+	subpath: string,
+	headers: { acceptEncoding: string | null }
+): Response {
+	const runsRoot = env.RUNS_ROOT ? resolve(env.RUNS_ROOT) : null;
+	const dataPath = resolve(run.data_path);
+	if (runsRoot && !isUnder(dataPath, runsRoot)) {
+		console.error('[serve-run-file] run.data_path', dataPath, 'escapes RUNS_ROOT', runsRoot);
+		throw error(404, 'Not found');
+	}
+
+	let sub = subpath ?? '';
+	if (sub === '' || sub.endsWith('/')) sub += 'index.html';
+	const target = resolve(dataPath, sub);
+	if (!isUnder(target, dataPath)) throw error(404, 'Not found');
+
+	// Locate either the target file or, if the client accepts gzip and the
+	// bare target is missing, the .gz alongside it. The returned `served`
+	// path is what nginx / Node will actually read from disk.
+	let served = target;
+	let contentEncoding: string | null = null;
+	let stat = safeStat(target);
+	if (!stat && acceptsGzip(headers.acceptEncoding)) {
+		const gz = target + '.gz';
+		const gzStat = safeStat(gz);
+		if (gzStat) {
+			served = gz;
+			contentEncoding = 'gzip';
+			stat = gzStat;
+		}
+	}
+	if (!stat) throw error(404, 'Not found');
+
+	// Content-Type is derived from the LOGICAL target, not `served`, so a
+	// gzipped `read_explorer.json.gz` is labeled as `application/json`
+	// with `Content-Encoding: gzip` rather than `application/gzip` (the
+	// latter would make the browser download instead of decompressing).
+	const ct = contentTypeFor(target);
+	const cacheControl = run.is_public ? 'public, max-age=300' : 'private, max-age=0';
+
+	const xAccelPrefix = env.X_ACCEL_PREFIX;
+	if (xAccelPrefix && runsRoot) {
+		const rel = served.slice(runsRoot.length).replace(/^\/+/, '');
+		const uri =
+			xAccelPrefix.replace(/\/+$/, '') +
+			'/' +
+			rel.split('/').map(encodeURIComponent).join('/');
+		const h: Record<string, string> = {
+			'X-Accel-Redirect': uri,
+			'Content-Type': ct,
+			'Cache-Control': cacheControl
+		};
+		if (contentEncoding) h['Content-Encoding'] = contentEncoding;
+		// Tell caches the response varies on Accept-Encoding so a plain
+		// client isn't handed the cached gzipped bytes.
+		h['Vary'] = 'Accept-Encoding';
+		return new Response(null, { status: 200, headers: h });
+	}
+
+	// Dev fallback: stream directly from Node.
+	const stream = createReadStream(served);
+	const body = Readable.toWeb(stream) as ReadableStream;
+	const h: Record<string, string> = {
+		'Content-Type': ct,
+		'Content-Length': String(stat.size),
+		'Cache-Control': cacheControl,
+		'Last-Modified': stat.mtime.toUTCString(),
+		Vary: 'Accept-Encoding'
+	};
+	if (contentEncoding) h['Content-Encoding'] = contentEncoding;
+	return new Response(body, { status: 200, headers: h });
+}

@@ -25,6 +25,12 @@
 				<div class="text-sm text-slate-400 mt-1">List lab members, adjust roles, reset local passwords, remove members.</div>
 			</a>
 		</li>
+		<li class="rounded border border-slate-800 bg-slate-900/40 hover:border-ocean-600 transition-colors">
+			<a href="/settings/feedback" class="block p-4">
+				<div class="text-white font-semibold">Feedback</div>
+				<div class="text-sm text-slate-400 mt-1">Review messages submitted via the in-app feedback form.</div>
+			</a>
+		</li>
 		<li class="rounded border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-500">
 			<div class="text-slate-300 font-semibold">Backups</div>
 			<div class="mt-1">UI pending. Configure a per-lab GitHub repo + PAT via <code class="text-slate-400">/api/lab/settings</code> to enable snapshots.</div>
