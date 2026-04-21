@@ -141,26 +141,33 @@ export function serveRunFile(
 	const contentEncoding = resolved.contentEncoding;
 	const cacheControl = run.is_public ? 'public, max-age=300' : 'private, max-age=0';
 
+	// Production happy-path: emit X-Accel-Redirect and let nginx serve the
+	// bytes. BUT: nginx's X-Accel flow strips upstream Content-Encoding
+	// (it treats the internal response as a fresh static-file serve, and
+	// its own gzip module either re-compresses or drops the header), so
+	// when we need Content-Encoding on the wire — i.e. for pre-compressed
+	// `.gz` content we're labeling as the uncompressed type — we have to
+	// stream from Node. For plain files we still hand off to nginx.
 	const xAccelPrefix = env.X_ACCEL_PREFIX;
-	if (xAccelPrefix && runsRoot) {
+	if (xAccelPrefix && runsRoot && !contentEncoding) {
 		const rel = served.slice(runsRoot.length).replace(/^\/+/, '');
 		const uri =
 			xAccelPrefix.replace(/\/+$/, '') +
 			'/' +
 			rel.split('/').map(encodeURIComponent).join('/');
-		const h: Record<string, string> = {
-			'X-Accel-Redirect': uri,
-			'Content-Type': ct,
-			'Cache-Control': cacheControl
-		};
-		if (contentEncoding) h['Content-Encoding'] = contentEncoding;
-		// Tell caches the response varies on Accept-Encoding so a plain
-		// client isn't handed the cached gzipped bytes.
-		h['Vary'] = 'Accept-Encoding';
-		return new Response(null, { status: 200, headers: h });
+		return new Response(null, {
+			status: 200,
+			headers: {
+				'X-Accel-Redirect': uri,
+				'Content-Type': ct,
+				'Cache-Control': cacheControl,
+				Vary: 'Accept-Encoding'
+			}
+		});
 	}
 
-	// Dev fallback: stream directly from Node.
+	// Stream the file from Node. Used in dev (no nginx) and in prod for
+	// responses that need a Content-Encoding header (pre-compressed .gz).
 	const stream = createReadStream(served);
 	const body = Readable.toWeb(stream) as ReadableStream;
 	const h: Record<string, string> = {
