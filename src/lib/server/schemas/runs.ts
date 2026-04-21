@@ -35,7 +35,7 @@ const slug = z
 	.trim()
 	.min(1)
 	.max(64)
-	.regex(/^[a-z0-9][a-z0-9-]*$/, 'slug must be lowercase alnum with optional dashes')
+	.regex(/^[a-z0-9][a-z0-9_-]*$/, 'slug must be lowercase alnum with optional dashes or underscores')
 	.refine((s) => !RESERVED_SLUGS.has(s), 'slug collides with a reserved path');
 
 // Absolute host-filesystem path. Must start with '/' and must NOT contain
