@@ -5,6 +5,17 @@ import { requireUser } from '$lib/server/guards';
 import { serveRunFile } from '$lib/server/serve-run-file';
 
 /**
+ * `trailingSlash = 'always'` makes /<slug> redirect to /<slug>/ instead of
+ * the SvelteKit default which strips the slash. Without a trailing slash
+ * on the document URL, the SPA's relative asset references (./assets/…,
+ * emitted by `vite build --base ./`) resolve against the domain root —
+ * e.g. /genice_ci references become /assets/… — and every asset 404s.
+ * Note: SvelteKit skips this normalization for paths with a file
+ * extension, so /<slug>/assets/index.js still serves directly.
+ */
+export const trailingSlash = 'always';
+
+/**
  * Slug-based alias for /runs/[id]/files/[...subpath].
  *
  * Lab viz SPAs are typically built with an absolute base path matching the

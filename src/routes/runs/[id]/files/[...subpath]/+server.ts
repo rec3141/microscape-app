@@ -12,7 +12,10 @@ import { serveRunFile } from '$lib/server/serve-run-file';
  * compatibility with SPAs that bake an absolute base path matching the
  * run's slug. Both routes end up calling serveRunFile, which handles
  * path-safety, `.gz` fallback, and X-Accel-Redirect emission.
+ *
+ * See the sibling slug route for why trailingSlash is 'always'.
  */
+export const trailingSlash = 'always';
 export const GET: RequestHandler = async ({ params, locals, request }) => {
 	const user = requireUser(locals);
 	const db = getDb();
