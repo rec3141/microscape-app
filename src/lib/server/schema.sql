@@ -98,6 +98,32 @@ CREATE TABLE IF NOT EXISTS invites (
 CREATE INDEX IF NOT EXISTS idx_invites_lab ON invites(lab_id);
 
 -- ============================================================
+-- API KEYS
+--
+-- Lab-scoped bearer tokens used by external pipelines (e.g. danaseq)
+-- to deploy runs via POST /api/v1/deploy. Each key grants the same
+-- write surface as a lab-admin: create/update any run in the lab. Keys
+-- are stored as sha256 hashes — we never keep the plaintext, so a lost
+-- key must be revoked and replaced. `key_prefix` is the first ~10
+-- characters of the plaintext (e.g. "mk_a1b2c3d…") for the UI so an
+-- admin can tell which row corresponds to which key they wrote down.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    lab_id TEXT NOT NULL REFERENCES labs(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    key_prefix TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    created_by TEXT REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at TEXT,
+    revoked_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_lab ON api_keys(lab_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+
+-- ============================================================
 -- PIPELINES
 --
 -- Global list of pipelines that produce gated outputs (microscape-nf,

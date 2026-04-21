@@ -3,7 +3,7 @@
 <div class="space-y-6">
 	<header>
 		<h1 class="text-2xl font-semibold">Admin</h1>
-		<p class="text-sm text-slate-400">Lab settings, users, invites, and run access management.</p>
+		<p class="text-sm text-slate-400">Lab settings, users, invites, API keys, and run access management.</p>
 	</header>
 
 	<ul class="grid gap-3 sm:grid-cols-2">
@@ -23,6 +23,12 @@
 			<a href="/settings/users" class="block p-4">
 				<div class="text-white font-semibold">Users</div>
 				<div class="text-sm text-slate-400 mt-1">List lab members, adjust roles, reset local passwords, remove members.</div>
+			</a>
+		</li>
+		<li class="rounded border border-slate-800 bg-slate-900/40 hover:border-ocean-600 transition-colors">
+			<a href="/settings/api-keys" class="block p-4">
+				<div class="text-white font-semibold">API keys</div>
+				<div class="text-sm text-slate-400 mt-1">Bearer tokens for external pipelines to deploy runs via POST /api/v1/deploy.</div>
 			</a>
 		</li>
 		<li class="rounded border border-slate-800 bg-slate-900/40 hover:border-ocean-600 transition-colors">

@@ -42,7 +42,12 @@ function applySecurityHeaders(response: Response) {
  * prefer wiring auth into the handler.
  */
 const PUBLIC_API_ROUTES: Record<string, string[]> = {
-	'/api/feedback': ['POST'] // anonymous lab users can submit feedback
+	'/api/feedback': ['POST'], // anonymous lab users can submit feedback
+	// The versioned ingest API authenticates with an Authorization: Bearer
+	// header inside the handler, not session cookies — so the session gate
+	// must let the request through. Admin-gate guards at the hook level
+	// would reject these too, so the handler does its own bearer check.
+	'/api/v1/deploy': ['POST']
 	// /api/auth/setup-lab and /api/auth/join require an authenticated user
 	// (just one without a lab_id) — they're gated by the lab-setup
 	// allowlist below, NOT by being public.
@@ -69,7 +74,8 @@ const ADMIN_WRITE_PREFIXES = [
 	'/api/feedback/', // covers /api/feedback/[id] PUT/DELETE
 	'/api/invites',   // covers /api/invites and /api/invites/[token]
 	'/api/lab',       // covers /api/lab (DELETE the lab) + /api/lab/settings + /api/lab/settings/test
-	'/api/runs'       // covers /api/runs, /api/runs/[id], /api/runs/[id]/access(/[userId])
+	'/api/runs',      // covers /api/runs, /api/runs/[id], /api/runs/[id]/access(/[userId])
+	'/api/keys'       // covers /api/keys and /api/keys/[id]
 ];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -90,6 +96,8 @@ function requiresAdmin(pathname: string, method: string): boolean {
 		if (pathname === '/api/db/snapshots' && method === 'GET') return true;
 		// GET /api/db/restore/commits lists pickable commits for restore
 		if (pathname === '/api/db/restore/commits' && method === 'GET') return true;
+		// GET /api/keys lists this lab's API keys (names + prefixes, no plaintext)
+		if (pathname === '/api/keys' && method === 'GET') return true;
 		return false;
 	}
 	return ADMIN_WRITE_PREFIXES.some((p) => pathname.startsWith(p));
