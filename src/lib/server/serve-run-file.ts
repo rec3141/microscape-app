@@ -1,8 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { createReadStream, statSync } from 'fs';
+import { createReadStream, statSync, type ReadStream } from 'fs';
 import { resolve, sep, extname } from 'path';
-import { Readable } from 'stream';
 
 /**
  * Resolve a subpath under a run's data_path and return an HTTP response.
@@ -88,6 +87,39 @@ interface Stat {
 	mtime: Date;
 }
 
+/**
+ * Adapt a Node fs.ReadStream to a Web ReadableStream, swallowing
+ * double-close races on the controller. Node 18's built-in
+ * `Readable.toWeb()` throws ERR_INVALID_STATE when the underlying
+ * ReadStream's 'close' event fires after the controller already closed
+ * via end/error, which crashes the whole worker.
+ */
+function nodeStreamToWebReadable(nodeStream: ReadStream): ReadableStream {
+	let closed = false;
+	return new ReadableStream({
+		start(controller) {
+			nodeStream.on('data', (chunk) => {
+				if (closed) return;
+				try { controller.enqueue(chunk); } catch { /* controller already closed */ }
+			});
+			nodeStream.once('end', () => {
+				if (closed) return;
+				closed = true;
+				try { controller.close(); } catch { /* already closed */ }
+			});
+			nodeStream.once('error', (err) => {
+				if (closed) return;
+				closed = true;
+				try { controller.error(err); } catch { /* already closed */ }
+			});
+		},
+		cancel(reason) {
+			closed = true;
+			nodeStream.destroy(reason instanceof Error ? reason : undefined);
+		}
+	});
+}
+
 function safeStat(path: string): Stat | null {
 	try {
 		const s = statSync(path);
@@ -168,8 +200,11 @@ export function serveRunFile(
 
 	// Stream the file from Node. Used in dev (no nginx) and in prod for
 	// responses that need a Content-Encoding header (pre-compressed .gz).
-	const stream = createReadStream(served);
-	const body = Readable.toWeb(stream) as ReadableStream;
+	// We hand-roll the Web stream adapter instead of using Readable.toWeb
+	// because the Node 18 built-in hits ERR_INVALID_STATE when the
+	// underlying ReadStream close fires after the controller has already
+	// been closed — a race that reliably kills the worker on small files.
+	const body = nodeStreamToWebReadable(createReadStream(served));
 	const h: Record<string, string> = {
 		'Content-Type': ct,
 		'Content-Length': String(stat.size),
