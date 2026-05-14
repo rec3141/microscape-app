@@ -80,7 +80,18 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
 	).get(uid, uid, params.slug, uid, user?.lab_id ?? '') as
 		| { id: string; data_path: string; is_public: number; lab_slug: string }
 		| undefined;
-	if (!run) throw error(404, 'Not found');
+	if (!run) {
+		// Unknown slug: send the browser back to the landing page rather
+		// than leak a 404. Sub-resource fetches (a path with a file
+		// extension) still 404 so a typo in a data URL doesn't silently
+		// get HTML.
+		const sp = params.subpath ?? '';
+		const looksLikeFile = sp.includes('.') && !sp.endsWith('/');
+		if (!looksLikeFile) {
+			return new Response(null, { status: 302, headers: { Location: '/' } });
+		}
+		throw error(404, 'Not found');
+	}
 
 	return serveRunFile(run, params.subpath ?? '', {
 		acceptEncoding: request.headers.get('accept-encoding')
