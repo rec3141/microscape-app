@@ -158,7 +158,16 @@ export function serveRunFile(
 	let served = target;
 	let stat = safeStat(target);
 	let resolved = resolveContent(target);
-	if (!stat && acceptsGzip(headers.acceptEncoding)) {
+	// Prefer pre-compressed alongside files when the client accepts gzip.
+	// Two reasons to substitute even when the plain target exists:
+	//   (a) plain target is missing — classic gzip_static fallback
+	//   (b) plain target exists but a .gz sibling also exists — our
+	//       X-Accel handoff would otherwise hit nginx's gzip_static, which
+	//       substitutes the .gz bytes but drops Content-Encoding, leaving
+	//       the client trying to JSON.parse raw gz.
+	// Routing through the Node-streamed branch (set contentEncoding,
+	// skip xAccelPrefix below) gives us explicit control of the header.
+	if (acceptsGzip(headers.acceptEncoding) && !target.toLowerCase().endsWith('.gz')) {
 		const gz = target + '.gz';
 		const gzStat = safeStat(gz);
 		if (gzStat) {
