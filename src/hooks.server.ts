@@ -193,7 +193,17 @@ function isPublicPage(pathname: string): boolean {
 	if (pathname.startsWith('/_app/')) return true;
 	if (pathname === '/favicon.ico' || pathname === '/favicon.png') return true;
 	if (pathname === '/privacy') return true;
-	return PUBLIC_PAGE_PREFIXES.some((p) => pathname.startsWith(p));
+	if (PUBLIC_PAGE_PREFIXES.some((p) => pathname.startsWith(p))) return true;
+	// Open browsing for the landing, run viewer pages, and slug-routed run
+	// SPA bundles. Each downstream handler does its own ACL check — for an
+	// anonymous viewer it must verify the run belongs to the public lab.
+	// /api/*, /account/*, and /settings/* stay gated.
+	if (pathname === '/') return true;
+	if (pathname.startsWith('/runs/')) return true;
+	if (!pathname.startsWith('/api/')
+		&& !pathname.startsWith('/account')
+		&& !pathname.startsWith('/settings')) return true;
+	return false;
 }
 
 export const handle: Handle = async ({ event, resolve }) => {

@@ -11,8 +11,29 @@ import { getDb } from '$lib/server/db';
  * slug alias route) but don't appear on every user's landing.
  */
 export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user || !locals.user.lab_id) return { runs: [] };
 	const db = getDb();
+
+	// Anonymous visitors see only the dedicated public lab. The conference/
+	// share-out lab is identified by lab.slug = 'public' (lab table); we do
+	// NOT use run.is_public here — that flag still requires a session per
+	// the file-handler ACLs.
+	if (!locals.user) {
+		const runs = db.prepare(`
+			SELECT
+				r.id, r.slug, r.name, r.description, r.is_public, r.created_at,
+				p.slug AS pipeline_slug, p.name AS pipeline_name,
+				l.name AS lab_name, l.slug AS lab_slug,
+				'public' AS access_via
+			FROM runs r
+			JOIN pipelines p ON p.id = r.pipeline_id
+			JOIN labs l ON l.id = r.lab_id
+			WHERE l.slug = 'public'
+			ORDER BY r.created_at DESC
+		`).all();
+		return { runs };
+	}
+
+	if (!locals.user.lab_id) return { runs: [] };
 
 	const runs = db.prepare(`
 		SELECT

@@ -1,7 +1,6 @@
 import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
-import { requireUser } from '$lib/server/guards';
 import { serveRunFile } from '$lib/server/serve-run-file';
 
 /**
@@ -52,18 +51,23 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
 		});
 	}
 
-	const user = requireUser(locals);
+	const user = locals.user;
 	const db = getDb();
+	const uid = user?.id ?? '';
 
 	const run = db.prepare(
-		`SELECT r.id, r.data_path, r.is_public
+		`SELECT r.id, r.data_path, r.is_public, l.slug AS lab_slug
 		 FROM runs r
+		 JOIN labs l ON l.id = r.lab_id
 		 LEFT JOIN lab_memberships m
 		   ON m.lab_id = r.lab_id AND m.user_id = ? AND m.status = 'active'
 		 LEFT JOIN run_access ra
 		   ON ra.run_id = r.id AND ra.user_id = ?
 		 WHERE r.slug = ?
-		   AND (r.is_public = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL)
+		   AND (
+		     l.slug = 'public'
+		     OR (? != '' AND (r.is_public = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL))
+		   )
 		 ORDER BY
 		   CASE WHEN r.lab_id = ? THEN 0 ELSE 1 END,
 		   CASE
@@ -73,8 +77,8 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
 		   END,
 		   r.created_at DESC
 		 LIMIT 1`
-	).get(user.id, user.id, params.slug, user.lab_id ?? '') as
-		| { id: string; data_path: string; is_public: number }
+	).get(uid, uid, params.slug, uid, user?.lab_id ?? '') as
+		| { id: string; data_path: string; is_public: number; lab_slug: string }
 		| undefined;
 	if (!run) throw error(404, 'Not found');
 

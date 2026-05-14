@@ -1,16 +1,17 @@
 import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
-import { requireUser } from '$lib/server/guards';
 
 /**
- * Single run viewer. Visibility mirrors the landing-page rule:
- *   run.is_public OR active lab member OR explicit run_access row.
+ * Single run viewer. Visibility:
+ *   - Authenticated: run.is_public OR active lab member OR explicit run_access
+ *   - Anonymous:     run.lab.slug = 'public' (the dedicated public lab)
  * On a miss we return 404 (not 403) to avoid confirming the run exists.
  */
 export const load: PageServerLoad = async ({ params, locals }) => {
-	const user = requireUser(locals);
+	const user = locals.user;
 	const db = getDb();
+	const uid = user?.id ?? '';
 
 	const row = db.prepare(
 		`SELECT
@@ -19,6 +20,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			p.slug AS pipeline_slug, p.name AS pipeline_name,
 			l.name AS lab_name, l.slug AS lab_slug,
 			CASE
+				WHEN l.slug = 'public' THEN 'public'
 				WHEN r.is_public = 1 THEN 'public'
 				WHEN m.user_id IS NOT NULL THEN 'lab'
 				WHEN ra.user_id IS NOT NULL THEN 'invited'
@@ -33,8 +35,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		LEFT JOIN run_access ra
 		  ON ra.run_id = r.id AND ra.user_id = ?
 		WHERE r.id = ?
-		  AND (r.is_public = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL)`
-	).get(user.id, user.id, params.id);
+		  AND (
+		    l.slug = 'public'
+		    OR (? != '' AND (r.is_public = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL))
+		  )`
+	).get(uid, uid, params.id, uid);
 
 	if (!row) throw error(404, 'Run not found or access denied');
 	return { run: row };
