@@ -7,7 +7,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const db = getDb();
 
 	const runs = db.prepare(
-		`SELECT r.id, r.slug, r.name, r.description, r.data_path, r.is_public, r.created_at,
+		`SELECT r.id, r.slug, r.name, r.description, r.data_path, r.is_shared, r.created_at,
 		        p.slug AS pipeline_slug, p.name AS pipeline_name,
 		        (SELECT COUNT(*) FROM run_access WHERE run_id = r.id) AS grant_count
 		 FROM runs r

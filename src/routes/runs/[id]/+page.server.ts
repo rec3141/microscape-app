@@ -4,8 +4,8 @@ import { getDb } from '$lib/server/db';
 
 /**
  * Single run viewer. Visibility:
- *   - Authenticated: run.is_public OR active lab member OR explicit run_access
  *   - Anonymous:     run.lab.slug = 'public' (the dedicated public lab)
+ *   - Authenticated: run.is_shared (cross-lab) OR lab member OR run_access
  * On a miss we return 404 (not 403) to avoid confirming the run exists.
  */
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -15,18 +15,22 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const row = db.prepare(
 		`SELECT
-			r.id, r.slug, r.name, r.description, r.is_public, r.data_path,
+			r.id, r.slug, r.name, r.description, r.is_shared, r.data_path,
 			r.created_at, r.updated_at,
 			p.slug AS pipeline_slug, p.name AS pipeline_name,
 			l.name AS lab_name, l.slug AS lab_slug,
 			CASE
 				WHEN l.slug = 'public' THEN 'public'
-				WHEN r.is_public = 1 THEN 'public'
 				WHEN m.user_id IS NOT NULL THEN 'lab'
 				WHEN ra.user_id IS NOT NULL THEN 'invited'
+				WHEN r.is_shared = 1 THEN 'shared'
 				ELSE NULL
 			END AS access_via,
-			COALESCE(ra.role, m.role, 'viewer') AS effective_role
+			COALESCE(ra.role, m.role, 'viewer') AS effective_role,
+			-- Edit affordance: only lab-admins of the run's owning lab can
+			-- reach /settings/runs/<id>. Cross-lab viewers and run_access
+			-- invitees see the dashboard but not the admin pencil.
+			CASE WHEN m.role = 'admin' THEN 1 ELSE 0 END AS can_edit
 		FROM runs r
 		JOIN pipelines p ON p.id = r.pipeline_id
 		JOIN labs l ON l.id = r.lab_id
@@ -37,7 +41,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		WHERE r.id = ?
 		  AND (
 		    l.slug = 'public'
-		    OR (? != '' AND (r.is_public = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL))
+		    OR (? != '' AND (r.is_shared = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL))
 		  )`
 	).get(uid, uid, params.id, uid);
 

@@ -7,7 +7,7 @@ import { join, resolve, sep } from 'path';
 import { env } from '$env/dynamic/private';
 import { getDb, generateId } from '$lib/server/db';
 import { authenticateApiKey, extractBearer } from '$lib/server/api-keys';
-import { RunCreateBody } from '$lib/server/schemas/runs';
+import { RunCreateBody, VISIBILITY } from '$lib/server/schemas/runs';
 import { apiError } from '$lib/server/api-errors';
 
 /**
@@ -22,7 +22,12 @@ import { apiError } from '$lib/server/api-errors';
  *   X-Microscape-Pipeline     required — pipeline slug (e.g. danaseq-nanopore-live)
  *   X-Microscape-Name         optional — display name (defaults to slug)
  *   X-Microscape-Description  optional
- *   X-Microscape-Public       optional — "1" to mark is_public
+ *   X-Microscape-Visibility   optional — 'private' (default) | 'shared' | 'public'
+ *                             - private: lab-only, is_shared=0
+ *                             - shared:  any signed-in user can read (is_shared=1)
+ *                             - public:  also transfers run to the public lab so
+ *                               anonymous web visitors can read. Requires the API
+ *                               key to have can_publish_public=1.
  *
  * Body: a `.tar.gz` whose root contents will become the run directory.
  * Shape the tarball with a flat root (`index.html`, `assets/`, `data/`),
@@ -57,7 +62,16 @@ export const POST: RequestHandler = async ({ request }) => {
 	const pipelineSlug = request.headers.get('x-microscape-pipeline')?.trim();
 	const name = (request.headers.get('x-microscape-name') || slug || '').trim();
 	const description = request.headers.get('x-microscape-description')?.trim() || null;
-	const isPublic = request.headers.get('x-microscape-public') === '1' ? 1 : 0;
+	const visibilityHeader = request.headers.get('x-microscape-visibility')?.trim().toLowerCase() || 'private';
+	const visibilityParse = VISIBILITY.safeParse(visibilityHeader);
+	if (!visibilityParse.success) {
+		return json(
+			{ error: `Invalid X-Microscape-Visibility (use 'private' | 'shared' | 'public')` },
+			{ status: 400 }
+		);
+	}
+	const visibility = visibilityParse.data;
+	const isShared = visibility === 'private' ? 0 : 1;
 
 	if (!slug) return json({ error: 'Missing X-Microscape-Slug' }, { status: 400 });
 	if (!pipelineSlug) return json({ error: 'Missing X-Microscape-Pipeline' }, { status: 400 });
@@ -69,7 +83,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		slug,
 		name,
 		data_path: '/dev/null', // placeholder; set for real after extraction
-		is_public: isPublic
+		is_shared: isShared
 	});
 	if (!validation.success) {
 		const slugIssue = validation.error.issues.find((i) => i.path[0] === 'slug');
@@ -83,6 +97,29 @@ export const POST: RequestHandler = async ({ request }) => {
 		.prepare('SELECT id FROM pipelines WHERE slug = ?')
 		.get(pipelineSlug) as { id: string } | undefined;
 	if (!pipeline) return json({ error: `Unknown pipeline: ${pipelineSlug}` }, { status: 400 });
+
+	// Resolve the target lab. `public` visibility transfers the run into
+	// the dedicated public lab so anonymous web visitors can reach it;
+	// every other visibility keeps it in the key's owning lab.
+	let targetLabId = auth.lab_id;
+	if (visibility === 'public') {
+		if (!auth.can_publish_public) {
+			return json(
+				{ error: "This API key is not authorized for visibility='public'. Ask a lab admin to enable can_publish_public." },
+				{ status: 403 }
+			);
+		}
+		const publicLab = db
+			.prepare("SELECT id FROM labs WHERE slug = 'public'")
+			.get() as { id: string } | undefined;
+		if (!publicLab) {
+			return json(
+				{ error: "Server has no 'public' lab configured; ask an admin to create one." },
+				{ status: 500 }
+			);
+		}
+		targetLabId = publicLab.id;
+	}
 
 	const runsRoot = env.RUNS_ROOT ? resolve(env.RUNS_ROOT) : null;
 	if (!runsRoot) {
@@ -117,22 +154,24 @@ export const POST: RequestHandler = async ({ request }) => {
 		await rsyncMirror(sourceDir, targetDir);
 
 		// Upsert the run row. ON CONFLICT bumps the record so a second
-		// deploy to the same slug updates in place.
+		// deploy to the same slug updates in place. When visibility=public,
+		// targetLabId is the public lab (not the API key's owning lab) so
+		// the row lands directly there.
 		db.prepare(
-			`INSERT INTO runs (lab_id, pipeline_id, slug, name, description, data_path, is_public)
+			`INSERT INTO runs (lab_id, pipeline_id, slug, name, description, data_path, is_shared)
 			 VALUES (?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(lab_id, slug) DO UPDATE SET
 			   pipeline_id = excluded.pipeline_id,
 			   name        = excluded.name,
 			   description = COALESCE(excluded.description, runs.description),
 			   data_path   = excluded.data_path,
-			   is_public   = excluded.is_public,
+			   is_shared   = excluded.is_shared,
 			   updated_at  = datetime('now')`
-		).run(auth.lab_id, pipeline.id, slug, name, description, targetDir, isPublic);
+		).run(targetLabId, pipeline.id, slug, name, description, targetDir, isShared);
 
 		const run = db
 			.prepare('SELECT id FROM runs WHERE lab_id = ? AND slug = ?')
-			.get(auth.lab_id, slug) as { id: string };
+			.get(targetLabId, slug) as { id: string };
 
 		const origin = env.ORIGIN?.replace(/\/+$/, '') || '';
 		return json({

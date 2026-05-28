@@ -7,7 +7,7 @@
 		name: string;
 		description: string | null;
 		data_path: string;
-		is_public: number;
+		is_shared: number;
 		created_at: string;
 		pipeline_slug: string;
 		pipeline_name: string;
@@ -25,7 +25,7 @@
 	let name = $state('');
 	let dataPath = $state('');
 	let description = $state('');
-	let isPublic = $state(false);
+	let isShared = $state(false);
 	let busy = $state(false);
 	let error = $state('');
 
@@ -42,7 +42,7 @@
 				name: name.trim(),
 				description: description.trim() || null,
 				data_path: dataPath.trim(),
-				is_public: isPublic ? 1 : 0
+				is_shared: isShared ? 1 : 0
 			})
 		});
 		busy = false;
@@ -55,7 +55,7 @@
 		name = '';
 		dataPath = '';
 		description = '';
-		isPublic = false;
+		isShared = false;
 		await invalidateAll();
 	}
 
@@ -114,9 +114,14 @@
 					class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-ocean-500"></textarea>
 			</label>
 
-			<label class="flex items-center gap-2 sm:col-span-2 text-sm text-slate-300">
-				<input type="checkbox" bind:checked={isPublic} class="rounded border-slate-700 bg-slate-800 text-ocean-500 focus:ring-ocean-500" />
-				Public — any signed-in user can read this run
+			<label class="flex items-start gap-2 sm:col-span-2 text-sm text-slate-300">
+				<input type="checkbox" bind:checked={isShared} class="mt-0.5 rounded border-slate-700 bg-slate-800 text-ocean-500 focus:ring-ocean-500" />
+				<span class="block">
+					<span class="font-medium">Cross-lab shared</span>
+					<span class="block text-xs text-slate-500">
+						Any signed-in user can read it. Anonymous web access is a separate axis — set on the run's edit page via "Move to public lab".
+					</span>
+				</span>
 			</label>
 
 			{#if error}
@@ -150,8 +155,8 @@
 								<span class="font-mono">{run.slug}</span>
 								<span>·</span>
 								<span class="font-mono text-slate-600">{run.data_path}</span>
-								{#if run.is_public}
-									<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase tracking-wide text-[10px]">public</span>
+								{#if run.is_shared}
+									<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase tracking-wide text-[10px]">shared</span>
 								{/if}
 								{#if run.grant_count > 0}
 									<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase tracking-wide text-[10px]">{run.grant_count} grant{run.grant_count === 1 ? '' : 's'}</span>

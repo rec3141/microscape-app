@@ -12,11 +12,11 @@ mkdirSync(dirname(DB_PATH), { recursive: true });
 let _db: Database.Database | null = null;
 
 /**
- * Lazy DB init. Schema-driven only — `schema.sql` is the single source of
- * truth for table shape. There is no migration layer; if you add a column
- * or rename a table, the expectation is to wipe the existing DB and
- * re-seed (acceptable while we're pre-real-data; revisit if/when a lab
- * accumulates production-grade content).
+ * Lazy DB init. `schema.sql` is the source of truth for the desired table
+ * shape; `runMigrations()` patches in column renames / additions for DBs
+ * that pre-date a schema change so existing labs don't need a wipe + reseed.
+ * Keep migrations small and idempotent — anything bigger should still ship
+ * with a wipe-and-restore plan.
  */
 export function getDb(): Database.Database {
 	if (!_db) {
@@ -24,6 +24,7 @@ export function getDb(): Database.Database {
 		_db.pragma('journal_mode = WAL');
 		_db.pragma('foreign_keys = ON');
 		_db.exec(schema);
+		runMigrations(_db);
 		seedDefaultLab(_db);
 		const defaultLabId = getDefaultLabId(_db);
 		seedPipelines(_db);
@@ -34,6 +35,31 @@ export function getDb(): Database.Database {
 		startBackupScheduler();
 	}
 	return _db;
+}
+
+/**
+ * Idempotent in-place migrations for schema drift on pre-existing DBs.
+ * Each step checks `pragma_table_info` to decide whether to ALTER, so
+ * re-running is a no-op once the schema is current. Fresh installs reach
+ * the desired shape via `schema.sql` and skip every branch here.
+ */
+function runMigrations(db: Database.Database) {
+	const cols = (table: string): Set<string> =>
+		new Set(
+			(db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((r) => r.name)
+		);
+
+	const runsCols = cols('runs');
+	if (runsCols.has('is_public') && !runsCols.has('is_shared')) {
+		db.exec('ALTER TABLE runs RENAME COLUMN is_public TO is_shared');
+		console.log('[migrate] runs.is_public → runs.is_shared');
+	}
+
+	const keysCols = cols('api_keys');
+	if (!keysCols.has('can_publish_public')) {
+		db.exec('ALTER TABLE api_keys ADD COLUMN can_publish_public INTEGER NOT NULL DEFAULT 0');
+		console.log('[migrate] api_keys.can_publish_public added');
+	}
 }
 
 /**

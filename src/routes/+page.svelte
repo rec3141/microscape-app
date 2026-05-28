@@ -4,13 +4,13 @@
 		slug: string;
 		name: string;
 		description: string | null;
-		is_public: number;
+		is_shared: number;
 		created_at: string;
 		pipeline_slug: string;
 		pipeline_name: string;
 		lab_name: string;
 		lab_slug: string;
-		access_via: 'public' | 'lab' | 'invited' | null;
+		access_via: 'public' | 'shared' | 'lab' | 'invited' | null;
 	}
 
 	interface Props {
@@ -21,6 +21,7 @@
 
 	const ACCESS_LABEL: Record<string, string> = {
 		public: 'public',
+		shared: 'shared',
 		lab: 'lab',
 		invited: 'invited'
 	};

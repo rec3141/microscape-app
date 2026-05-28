@@ -43,6 +43,7 @@ export interface AuthenticatedKey {
 	id: string;
 	lab_id: string;
 	name: string;
+	can_publish_public: number;
 }
 
 /**
@@ -60,7 +61,7 @@ export function authenticateApiKey(token: string): AuthenticatedKey | null {
 	const db = getDb();
 	const row = db
 		.prepare(
-			`SELECT id, lab_id, name FROM api_keys
+			`SELECT id, lab_id, name, can_publish_public FROM api_keys
 			 WHERE key_hash = ? AND revoked_at IS NULL`
 		)
 		.get(sha256(token)) as AuthenticatedKey | undefined;
@@ -78,13 +79,18 @@ export function extractBearer(header: string | null): string | null {
 
 /** Persist a new key to the DB; returns the row plus the plaintext so
  *  the caller can show it once. */
-export function insertApiKey(labId: string, name: string, createdBy: string | null): CreatedKey & { id: string } {
+export function insertApiKey(
+	labId: string,
+	name: string,
+	createdBy: string | null,
+	canPublishPublic = 0
+): CreatedKey & { id: string } {
 	const db = getDb();
 	const id = generateId();
 	const key = mintApiKey();
 	db.prepare(
-		`INSERT INTO api_keys (id, lab_id, name, key_prefix, key_hash, created_by)
-		 VALUES (?, ?, ?, ?, ?, ?)`
-	).run(id, labId, name, key.display, key.hash, createdBy);
+		`INSERT INTO api_keys (id, lab_id, name, key_prefix, key_hash, can_publish_public, created_by)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`
+	).run(id, labId, name, key.display, key.hash, canPublishPublic, createdBy);
 	return { id, ...key };
 }

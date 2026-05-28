@@ -17,8 +17,11 @@ const optionalLongText = z.preprocess(
 	LONG_TEXT.nullable().optional()
 );
 
-// Accept boolean or 0/1 for is_public; normalize to 0/1.
+// Accept boolean or 0/1 and normalize to 0/1.
 const boolish = z.union([z.boolean(), z.literal(0), z.literal(1)]).transform((v) => (v ? 1 : 0));
+
+export const VISIBILITY = z.enum(['private', 'shared', 'public']);
+export type Visibility = z.infer<typeof VISIBILITY>;
 
 // Slugs are URL-safe run identifiers. Lowercase, alnum + dashes, 1..64 chars.
 // A run's slug doubles as a top-level path segment (so `/chesterfield/` works
@@ -55,15 +58,19 @@ export const RunCreateBody = z.object({
 	name: SHORT_TEXT.min(1),
 	description: optionalLongText,
 	data_path: absolutePath,
-	is_public: boolish.default(0)
+	is_shared: boolish.default(0)
 });
 
+// PATCH body for /api/runs/[id]. `move_to: 'public' | '<lab_id>'` triggers
+// the dedicated transfer flow (admin-gated, see route handler). Plain
+// edits live in the other fields and are independent.
 export const RunUpdateBody = z.object({
 	slug: slug.optional(),
 	name: SHORT_TEXT.min(1).optional(),
 	description: optionalLongText,
 	data_path: absolutePath.optional(),
-	is_public: boolish.optional()
+	is_shared: boolish.optional(),
+	move_to: z.union([z.literal('public'), z.string().length(32)]).optional()
 });
 
 export const RunAccessGrantBody = z.object({

@@ -133,7 +133,7 @@ function safeStat(path: string): Stat | null {
 }
 
 export function serveRunFile(
-	run: { data_path: string; is_public: number },
+	run: { data_path: string; is_shared: number; lab_slug?: string },
 	subpath: string,
 	headers: { acceptEncoding: string | null }
 ): Response {
@@ -180,7 +180,11 @@ export function serveRunFile(
 
 	const ct = resolved.contentType;
 	const contentEncoding = resolved.contentEncoding;
-	const cacheControl = run.is_public ? 'public, max-age=300' : 'private, max-age=0';
+	// Cacheable if anyone can read this without a session (anon-public lab)
+	// or any signed-in user can read it (is_shared). Otherwise the response
+	// embeds lab-scoped data and must not be cached.
+	const cacheable = run.lab_slug === 'public' || run.is_shared === 1;
+	const cacheControl = cacheable ? 'public, max-age=300' : 'private, max-age=0';
 
 	// Production happy-path: emit X-Accel-Redirect and let nginx serve the
 	// bytes. BUT: nginx's X-Accel flow strips upstream Content-Encoding

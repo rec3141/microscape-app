@@ -7,6 +7,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const db = getDb();
 	const keys = db.prepare(
 		`SELECT k.id, k.name, k.key_prefix, k.created_at, k.last_used_at, k.revoked_at,
+		        k.can_publish_public,
 		        u.username AS created_by_username
 		 FROM api_keys k
 		 LEFT JOIN users u ON u.id = k.created_by

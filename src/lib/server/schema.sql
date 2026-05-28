@@ -114,6 +114,12 @@ CREATE TABLE IF NOT EXISTS api_keys (
     name TEXT NOT NULL,
     key_prefix TEXT NOT NULL,
     key_hash TEXT NOT NULL UNIQUE,
+    -- Capability: when 1, deploys made with this key may set
+    -- X-Microscape-Visibility: public, which transfers the run into the
+    -- dedicated public lab. Off by default; the lab admin must opt in
+    -- because anonymous web access is a meaningfully larger blast radius
+    -- than the lab-bound writes a normal deploy key can do.
+    can_publish_public INTEGER NOT NULL DEFAULT 0,
     created_by TEXT REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_used_at TEXT,
@@ -154,10 +160,12 @@ CREATE TABLE IF NOT EXISTS runs (
     name TEXT NOT NULL,
     description TEXT,
     data_path TEXT NOT NULL,
-    -- When 1, any authenticated user can read the run — used for
-    -- demo/showcase runs. ACL checks are skipped but the login wall is
-    -- still in force.
-    is_public INTEGER NOT NULL DEFAULT 0,
+    -- When 1, any authenticated user (any lab) can read the run. This is
+    -- cross-lab sharing only; it does NOT grant anonymous web access —
+    -- the login wall still applies. Anonymous public access is gated on
+    -- the run's lab being the dedicated "public" lab (lab.slug='public'),
+    -- which is a deliberately separate axis from is_shared.
+    is_shared INTEGER NOT NULL DEFAULT 0,
     created_by TEXT REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),

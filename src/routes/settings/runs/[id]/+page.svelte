@@ -7,9 +7,11 @@
 		name: string;
 		description: string | null;
 		data_path: string;
-		is_public: number;
+		is_shared: number;
 		pipeline_name: string;
 		pipeline_slug: string;
+		lab_slug: string;
+		lab_name: string;
 	}
 	interface Grant {
 		user_id: string;
@@ -27,7 +29,7 @@
 	}
 
 	interface Props {
-		data: { run: RunRow; grants: Grant[]; grantableUsers: GrantableUser[] };
+		data: { run: RunRow; grants: Grant[]; grantableUsers: GrantableUser[]; hasPublicLab: boolean };
 	}
 	let { data }: Props = $props();
 
@@ -36,10 +38,14 @@
 	let name = $state(data.run.name);
 	let dataPath = $state(data.run.data_path);
 	let description = $state(data.run.description ?? '');
-	let isPublic = $state(data.run.is_public === 1);
+	let isShared = $state(data.run.is_shared === 1);
 	let saveBusy = $state(false);
 	let saveError = $state('');
 	let saveOk = $state(false);
+	let moveBusy = $state(false);
+	let moveError = $state('');
+
+	const inPublicLab = $derived(data.run.lab_slug === 'public');
 
 	// Already-granted user_ids — used to exclude them from the add-grant picker.
 	const grantedIds = $derived(new Set(data.grants.map((g) => g.user_id)));
@@ -65,7 +71,7 @@
 				name: name.trim(),
 				data_path: dataPath.trim(),
 				description: description.trim() || null,
-				is_public: isPublic ? 1 : 0
+				is_shared: isShared ? 1 : 0
 			})
 		});
 		saveBusy = false;
@@ -75,6 +81,31 @@
 			return;
 		}
 		saveOk = true;
+		await invalidateAll();
+	}
+
+	async function moveToPublic() {
+		const ok = confirm(
+			`Move "${data.run.name}" into the public lab?\n\n` +
+				`This makes the run readable by ANYONE on the internet, with no login required. ` +
+				`Only do this for runs you intend to share publicly (e.g. conference snapshots). ` +
+				`After the move, lab admins from "${data.run.lab_name}" lose ownership unless ` +
+				`they are also members of the public lab.`
+		);
+		if (!ok) return;
+		moveBusy = true;
+		moveError = '';
+		const res = await fetch(`/api/runs/${data.run.id}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ move_to: 'public' })
+		});
+		moveBusy = false;
+		if (!res.ok) {
+			const body = await res.json().catch(() => ({ error: 'Move failed' }));
+			moveError = body.error || 'Move failed';
+			return;
+		}
 		await invalidateAll();
 	}
 
@@ -156,9 +187,14 @@
 					class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-ocean-500"></textarea>
 			</label>
 
-			<label class="flex items-center gap-2 sm:col-span-2 text-sm text-slate-300">
-				<input type="checkbox" bind:checked={isPublic} class="rounded border-slate-700 bg-slate-800 text-ocean-500 focus:ring-ocean-500" />
-				Public — any signed-in user can read this run
+			<label class="flex items-start gap-2 sm:col-span-2 text-sm text-slate-300">
+				<input type="checkbox" bind:checked={isShared} class="mt-0.5 rounded border-slate-700 bg-slate-800 text-ocean-500 focus:ring-ocean-500" />
+				<span class="block">
+					<span class="font-medium">Cross-lab shared</span>
+					<span class="block text-xs text-slate-500">
+						Any signed-in user in any lab can read this run. Login wall still applies — this does NOT grant anonymous access. For anonymous web access use "Move to public lab" below.
+					</span>
+				</span>
 			</label>
 
 			{#if saveError}
@@ -179,6 +215,42 @@
 				</button>
 			</div>
 		</form>
+	</section>
+
+	<section class="rounded border border-slate-800 bg-slate-900/40 p-4 space-y-3">
+		<h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Public web access</h2>
+		{#if inPublicLab}
+			<p class="text-sm text-slate-400">
+				This run is owned by the <span class="font-medium text-emerald-400">public</span> lab —
+				anyone on the internet can read it without logging in. Lab membership and per-run grants
+				still apply for write actions in the admin UI.
+			</p>
+			<p class="text-xs text-slate-500">
+				To remove anonymous access you'll need to move it back into a private lab; that move
+				action is currently restricted to public-lab admins.
+			</p>
+		{:else if data.hasPublicLab}
+			<p class="text-sm text-slate-400">
+				The run is in <span class="font-medium">{data.run.lab_name}</span>. Move it to the public
+				lab to grant anonymous web visitors read access. Use this for conference snapshots and
+				demo runs — not for active per-lab work.
+			</p>
+			<div class="flex items-center gap-3">
+				<button type="button" onclick={moveToPublic} disabled={moveBusy}
+					class="px-4 py-2 bg-amber-700 text-white rounded hover:bg-amber-600 disabled:opacity-50 transition-colors text-sm font-medium">
+					{moveBusy ? 'Moving…' : 'Move to public lab'}
+				</button>
+				{#if moveError}
+					<span class="text-sm text-red-300">{moveError}</span>
+				{/if}
+			</div>
+		{:else}
+			<p class="text-sm text-slate-500 italic">
+				No public lab is configured on this server — ask an admin to create a lab with slug
+				<code class="text-slate-300 bg-slate-800 px-1 rounded">public</code> to enable anonymous
+				sharing.
+			</p>
+		{/if}
 	</section>
 
 	<section class="rounded border border-slate-800 bg-slate-900/40 p-4 space-y-4">

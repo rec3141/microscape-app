@@ -8,7 +8,7 @@ import { RunCreateBody } from '$lib/server/schemas/runs';
 
 const RUN_COLS = `
 	r.id, r.lab_id, r.pipeline_id, r.slug, r.name, r.description,
-	r.data_path, r.is_public, r.created_by, r.created_at, r.updated_at,
+	r.data_path, r.is_shared, r.created_by, r.created_at, r.updated_at,
 	p.slug AS pipeline_slug, p.name AS pipeline_name
 `;
 
@@ -54,7 +54,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (!pipeline) return json({ error: 'Unknown pipeline' }, { status: 400 });
 
 		db.prepare(
-			`INSERT INTO runs (id, lab_id, pipeline_id, slug, name, description, data_path, is_public, created_by)
+			`INSERT INTO runs (id, lab_id, pipeline_id, slug, name, description, data_path, is_shared, created_by)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		).run(
 			id,
@@ -64,7 +64,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			data.name,
 			data.description ?? null,
 			data.data_path,
-			data.is_public,
+			data.is_shared,
 			user.id
 		);
 

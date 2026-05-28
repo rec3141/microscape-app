@@ -57,9 +57,10 @@ export interface Run {
 	/** Absolute path to the run's output directory on the host filesystem.
 	 *  The gated file endpoint maps requests to subpaths under this root. */
 	data_path: string;
-	/** When 1, the run is readable by any authenticated user (no ACL check).
-	 *  Lab-private is the default (is_public=0). */
-	is_public: number;
+	/** When 1, any authenticated user in any lab may read the run. This is
+	 *  cross-lab sharing only; anonymous web access is gated separately on
+	 *  the run's lab being the dedicated public lab (lab.slug = 'public'). */
+	is_shared: number;
 	created_by: string | null;
 	created_at: string;
 	updated_at: string;

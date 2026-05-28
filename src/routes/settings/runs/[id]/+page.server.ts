@@ -7,10 +7,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const { labId } = requireLabAdmin(locals);
 	const db = getDb();
 
+	// Pull lab slug too so the UI can render the move-to-public state
+	// (and offer the symmetric move-back action) without a second query.
 	const run = db.prepare(
-		`SELECT r.*, p.slug AS pipeline_slug, p.name AS pipeline_name
+		`SELECT r.*, p.slug AS pipeline_slug, p.name AS pipeline_name,
+		        l.slug AS lab_slug, l.name AS lab_name
 		 FROM runs r
 		 JOIN pipelines p ON p.id = r.pipeline_id
+		 JOIN labs l ON l.id = r.lab_id
 		 WHERE r.id = ? AND r.lab_id = ?`
 	).get(params.id, labId) as Record<string, unknown> | undefined;
 	if (!run) throw error(404, 'Run not found');
@@ -35,5 +39,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		 ORDER BY u.username`
 	).all(labId);
 
-	return { run, grants, grantableUsers };
+	// Public lab presence — drives whether the "Move to public lab" action
+	// is offered at all. Servers that don't have a public lab yet should
+	// show a hint instead of a dead button.
+	const publicLab = db.prepare("SELECT id FROM labs WHERE slug = 'public'").get() as
+		| { id: string }
+		| undefined;
+
+	return { run, grants, grantableUsers, hasPublicLab: !!publicLab };
 };

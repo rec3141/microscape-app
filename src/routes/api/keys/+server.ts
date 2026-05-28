@@ -15,7 +15,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const db = getDb();
 	const rows = db
 		.prepare(
-			`SELECT id, name, key_prefix, created_at, last_used_at, revoked_at
+			`SELECT id, name, key_prefix, can_publish_public,
+			        created_at, last_used_at, revoked_at
 			 FROM api_keys
 			 WHERE lab_id = ?
 			 ORDER BY revoked_at IS NOT NULL, created_at DESC`
@@ -31,9 +32,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const parsed = parseBody(ApiKeyCreateBody, await request.json().catch(() => null));
 	if (!parsed.ok) return parsed.response;
 	try {
-		const key = insertApiKey(labId, parsed.data.name, user.id);
+		const key = insertApiKey(labId, parsed.data.name, user.id, parsed.data.can_publish_public);
 		return json(
-			{ id: key.id, name: parsed.data.name, key: key.plaintext, prefix: key.display },
+			{
+				id: key.id,
+				name: parsed.data.name,
+				key: key.plaintext,
+				prefix: key.display,
+				can_publish_public: parsed.data.can_publish_public
+			},
 			{ status: 201 }
 		);
 	} catch (err) {

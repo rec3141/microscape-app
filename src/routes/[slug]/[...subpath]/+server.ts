@@ -56,7 +56,7 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
 	const uid = user?.id ?? '';
 
 	const run = db.prepare(
-		`SELECT r.id, r.data_path, r.is_public, l.slug AS lab_slug
+		`SELECT r.id, r.data_path, r.is_shared, l.slug AS lab_slug
 		 FROM runs r
 		 JOIN labs l ON l.id = r.lab_id
 		 LEFT JOIN lab_memberships m
@@ -66,7 +66,7 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
 		 WHERE r.slug = ?
 		   AND (
 		     l.slug = 'public'
-		     OR (? != '' AND (r.is_public = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL))
+		     OR (? != '' AND (r.is_shared = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL))
 		   )
 		 ORDER BY
 		   CASE WHEN r.lab_id = ? THEN 0 ELSE 1 END,
@@ -78,7 +78,7 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
 		   r.created_at DESC
 		 LIMIT 1`
 	).get(uid, uid, params.slug, uid, user?.lab_id ?? '') as
-		| { id: string; data_path: string; is_public: number; lab_slug: string }
+		| { id: string; data_path: string; is_shared: number; lab_slug: string }
 		| undefined;
 	if (!run) {
 		// Unknown slug: send the browser back to the landing page rather
