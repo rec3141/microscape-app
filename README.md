@@ -18,11 +18,20 @@ tree served via `X-Accel-Redirect` so bulk bytes never flow through Node.
 
 ## Access model
 
-Every run belongs to one lab. A signed-in user sees a run when **any** hold:
+Every run belongs to one lab. Visibility has two distinct axes:
 
-- `run.is_public = 1` — readable by any signed-in user, no ACL check.
+**Authenticated visibility** — a signed-in user sees a run when **any** hold:
+
 - They're an active member of the run's lab (`lab_memberships`).
 - They hold an explicit `run_access` row for the run (cross-lab grant).
+- `run.is_shared = 1` — any signed-in user in any lab can read.
+
+**Anonymous web access** — visitors without a session reach a run only
+when the run's lab has `lab.slug = 'public'`. `is_shared` is irrelevant
+to anonymous traffic; the login wall still applies for any non-public-lab
+run. This separation lets a lab share a run cross-team without
+broadcasting it publicly, and lets a deliberate public showcase opt in
+explicitly.
 
 Runs are reached at two URLs, both with identical visibility checks:
 
@@ -38,8 +47,8 @@ Both trailing-slash-redirect bare slug URLs so relative asset URLs in SPAs
 
 Lab-admin-only, under `/settings/`:
 
-- **Runs** — register/edit/delete runs, flip `is_public`, manage per-user
-  cross-lab access grants.
+- **Runs** — register/edit/delete runs, flip `is_shared`, transfer to the
+  public lab for anonymous web access, manage per-user cross-lab grants.
 - **Invites** — one-time invite URLs scoped to a role + lab.
 - **Users** — list members, change roles, reset local passwords, remove
   members.
@@ -58,7 +67,7 @@ X-Microscape-Slug: <run-slug>                (required)
 X-Microscape-Pipeline: <pipeline-slug>       (required, e.g. danaseq-nanopore-live)
 X-Microscape-Name: "<display name>"          (optional, defaults to slug)
 X-Microscape-Description: "<one-liner>"      (optional)
-X-Microscape-Public: 0|1                     (optional, default 0)
+X-Microscape-Visibility: private|shared|public  (optional, default 'private')
 <body: tar.gz of the deploy tree>
 ```
 
@@ -79,6 +88,15 @@ returns the run id, URL, and file count:
 ```json
 { "run_id": "…", "slug": "genice_ci", "url": "https://microscape.app/genice_ci/", "files": 42 }
 ```
+
+**Visibility values:**
+
+- `private` (default) — lab-only; `is_shared=0`, lab = key's owning lab.
+- `shared` — any signed-in user can read (`is_shared=1`); login wall stays in force.
+- `public` — also transfers the run into the lab where `slug='public'` so anonymous
+  web visitors can read it. Requires the API key to have `can_publish_public=1`
+  (toggle per-key at `/settings/api-keys`); a key without that capability is
+  rejected with 403.
 
 **Mint a key** at `/settings/api-keys` — it's shown once, stored sha256-hashed
 server-side. Keys are lab-scoped (any key in a lab has the same deploy
