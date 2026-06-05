@@ -174,6 +174,7 @@ function seedPipelines(db: Database.Database) {
 		{ slug: 'danaseq-nanopore-live', name: 'danaseq nanopore_live', description: 'Per-barcode nanopore classification (kraken/bakta/prokka/sketch/tetra/hmm).' },
 		{ slug: 'danaseq-nanopore-assembly', name: 'danaseq nanopore_assembly', description: 'Long-read metagenome assembly (Flye/metaMDBG/myloasm) + mapping.' },
 		{ slug: 'danaseq-illumina-assembly', name: 'danaseq illumina_assembly', description: 'Short-read metagenome assembly (Tadpole/Megahit/SPAdes) + mapping.' },
+		{ slug: 'danaseq-illumina-rna', name: 'danaseq illumina_rna', description: 'Short-read metatranscriptome QA/QC, reference mapping (BBmap), and gene-level quantification (featureCounts).' },
 		{ slug: 'danaseq-mag-analysis', name: 'danaseq mag_analysis', description: 'MAG binning, annotation, taxonomy, metabolism, and viz.' }
 	];
 	const upsert = db.prepare(
