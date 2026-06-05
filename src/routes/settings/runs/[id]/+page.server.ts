@@ -39,12 +39,5 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		 ORDER BY u.username`
 	).all(labId);
 
-	// Public lab presence — drives whether the "Move to public lab" action
-	// is offered at all. Servers that don't have a public lab yet should
-	// show a hint instead of a dead button.
-	const publicLab = db.prepare("SELECT id FROM labs WHERE slug = 'public'").get() as
-		| { id: string }
-		| undefined;
-
-	return { run, grants, grantableUsers, hasPublicLab: !!publicLab };
+	return { run, grants, grantableUsers };
 };

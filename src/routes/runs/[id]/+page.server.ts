@@ -4,8 +4,8 @@ import { getDb } from '$lib/server/db';
 
 /**
  * Single run viewer. Visibility:
- *   - Anonymous:     run.lab.slug = 'public' (the dedicated public lab)
- *   - Authenticated: run.is_shared (cross-lab) OR lab member OR run_access
+ *   - Anonymous:     run.visibility = 'public'
+ *   - Authenticated: run.visibility IN ('shared', 'public') OR lab member OR run_access
  * On a miss we return 404 (not 403) to avoid confirming the run exists.
  */
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -15,15 +15,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const row = db.prepare(
 		`SELECT
-			r.id, r.slug, r.name, r.description, r.is_shared, r.data_path,
+			r.id, r.slug, r.name, r.description, r.visibility, r.data_path,
 			r.created_at, r.updated_at,
 			p.slug AS pipeline_slug, p.name AS pipeline_name,
 			l.name AS lab_name, l.slug AS lab_slug,
 			CASE
-				WHEN l.slug = 'public' THEN 'public'
 				WHEN m.user_id IS NOT NULL THEN 'lab'
 				WHEN ra.user_id IS NOT NULL THEN 'invited'
-				WHEN r.is_shared = 1 THEN 'shared'
+				WHEN r.visibility = 'public' THEN 'public'
+				WHEN r.visibility = 'shared' THEN 'shared'
 				ELSE NULL
 			END AS access_via,
 			COALESCE(ra.role, m.role, 'viewer') AS effective_role,
@@ -40,8 +40,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		  ON ra.run_id = r.id AND ra.user_id = ?
 		WHERE r.id = ?
 		  AND (
-		    l.slug = 'public'
-		    OR (? != '' AND (r.is_shared = 1 OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL))
+		    r.visibility = 'public'
+		    OR (? != '' AND (r.visibility = 'shared' OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL))
 		  )`
 	).get(uid, uid, params.id, uid);
 

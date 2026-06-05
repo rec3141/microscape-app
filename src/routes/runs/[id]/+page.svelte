@@ -4,7 +4,7 @@
 		slug: string;
 		name: string;
 		description: string | null;
-		is_shared: number;
+		visibility: 'private' | 'shared' | 'public';
 		data_path: string;
 		created_at: string;
 		updated_at: string;

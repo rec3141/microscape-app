@@ -160,12 +160,15 @@ CREATE TABLE IF NOT EXISTS runs (
     name TEXT NOT NULL,
     description TEXT,
     data_path TEXT NOT NULL,
-    -- When 1, any authenticated user (any lab) can read the run. This is
-    -- cross-lab sharing only; it does NOT grant anonymous web access —
-    -- the login wall still applies. Anonymous public access is gated on
-    -- the run's lab being the dedicated "public" lab (lab.slug='public'),
-    -- which is a deliberately separate axis from is_shared.
-    is_shared INTEGER NOT NULL DEFAULT 0,
+    -- A run's audience. One axis with three modes, none of which move
+    -- the deployment out of its owning lab:
+    --   private — only members of the owning lab can read.
+    --   shared  — any authenticated user (any lab) can read.
+    --   public  — anyone on the internet can read, no login.
+    -- run_access overlays additional per-user grants on top regardless of
+    -- this column (e.g. a private run with one invited collaborator).
+    visibility TEXT NOT NULL DEFAULT 'private'
+        CHECK (visibility IN ('private', 'shared', 'public')),
     created_by TEXT REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),

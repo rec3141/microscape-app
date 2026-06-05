@@ -57,10 +57,13 @@ export interface Run {
 	/** Absolute path to the run's output directory on the host filesystem.
 	 *  The gated file endpoint maps requests to subpaths under this root. */
 	data_path: string;
-	/** When 1, any authenticated user in any lab may read the run. This is
-	 *  cross-lab sharing only; anonymous web access is gated separately on
-	 *  the run's lab being the dedicated public lab (lab.slug = 'public'). */
-	is_shared: number;
+	/** Audience for the run:
+	 *  - 'private': only members of the owning lab can read.
+	 *  - 'shared':  any authenticated user (any lab) can read.
+	 *  - 'public':  anyone on the internet can read, no login.
+	 *  None of these move the run between labs — visibility is a property
+	 *  of the run itself. Per-user run_access rows overlay additional grants. */
+	visibility: 'private' | 'shared' | 'public';
 	created_by: string | null;
 	created_at: string;
 	updated_at: string;

@@ -55,6 +55,30 @@ function runMigrations(db: Database.Database) {
 		console.log('[migrate] runs.is_public → runs.is_shared');
 	}
 
+	// Collapse is_shared (cross-lab boolean) + lab.slug='public' (anon-web
+	// hack) into a single visibility enum. Backfill the new column from the
+	// pair, then drop is_shared. Idempotent — once the column is present
+	// and is_shared is gone, this whole block is a no-op.
+	const runsColsFresh = cols('runs');
+	if (!runsColsFresh.has('visibility')) {
+		db.exec(`ALTER TABLE runs ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'`);
+		db.exec(`
+			UPDATE runs SET visibility = 'public'
+			WHERE lab_id IN (SELECT id FROM labs WHERE slug = 'public')
+		`);
+		if (cols('runs').has('is_shared')) {
+			db.exec(`
+				UPDATE runs SET visibility = 'shared'
+				WHERE visibility = 'private' AND is_shared = 1
+			`);
+		}
+		console.log('[migrate] runs.visibility added and backfilled');
+	}
+	if (cols('runs').has('is_shared')) {
+		db.exec('ALTER TABLE runs DROP COLUMN is_shared');
+		console.log('[migrate] runs.is_shared dropped (superseded by visibility)');
+	}
+
 	const keysCols = cols('api_keys');
 	if (!keysCols.has('can_publish_public')) {
 		db.exec('ALTER TABLE api_keys ADD COLUMN can_publish_public INTEGER NOT NULL DEFAULT 0');

@@ -23,11 +23,11 @@ import { apiError } from '$lib/server/api-errors';
  *   X-Microscape-Name         optional — display name (defaults to slug)
  *   X-Microscape-Description  optional
  *   X-Microscape-Visibility   optional — 'private' (default) | 'shared' | 'public'
- *                             - private: lab-only, is_shared=0
- *                             - shared:  any signed-in user can read (is_shared=1)
- *                             - public:  also transfers run to the public lab so
- *                               anonymous web visitors can read. Requires the API
- *                               key to have can_publish_public=1.
+ *                             - private: lab-only.
+ *                             - shared:  any signed-in user can read.
+ *                             - public:  anyone on the internet can read; the
+ *                               run stays in the API key's owning lab. Requires
+ *                               the API key to have can_publish_public=1.
  *
  * Body: a `.tar.gz` whose root contents will become the run directory.
  * Shape the tarball with a flat root (`index.html`, `assets/`, `data/`),
@@ -71,7 +71,6 @@ export const POST: RequestHandler = async ({ request }) => {
 		);
 	}
 	const visibility = visibilityParse.data;
-	const isShared = visibility === 'private' ? 0 : 1;
 
 	if (!slug) return json({ error: 'Missing X-Microscape-Slug' }, { status: 400 });
 	if (!pipelineSlug) return json({ error: 'Missing X-Microscape-Pipeline' }, { status: 400 });
@@ -83,7 +82,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		slug,
 		name,
 		data_path: '/dev/null', // placeholder; set for real after extraction
-		is_shared: isShared
+		visibility
 	});
 	if (!validation.success) {
 		const slugIssue = validation.error.issues.find((i) => i.path[0] === 'slug');
@@ -98,27 +97,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		.get(pipelineSlug) as { id: string } | undefined;
 	if (!pipeline) return json({ error: `Unknown pipeline: ${pipelineSlug}` }, { status: 400 });
 
-	// Resolve the target lab. `public` visibility transfers the run into
-	// the dedicated public lab so anonymous web visitors can reach it;
-	// every other visibility keeps it in the key's owning lab.
-	let targetLabId = auth.lab_id;
-	if (visibility === 'public') {
-		if (!auth.can_publish_public) {
-			return json(
-				{ error: "This API key is not authorized for visibility='public'. Ask a lab admin to enable can_publish_public." },
-				{ status: 403 }
-			);
-		}
-		const publicLab = db
-			.prepare("SELECT id FROM labs WHERE slug = 'public'")
-			.get() as { id: string } | undefined;
-		if (!publicLab) {
-			return json(
-				{ error: "Server has no 'public' lab configured; ask an admin to create one." },
-				{ status: 500 }
-			);
-		}
-		targetLabId = publicLab.id;
+	// Visibility='public' carries an elevated capability requirement: the
+	// API key must be marked can_publish_public by a lab admin. Public runs
+	// stay in the key's owning lab — no lab transfer.
+	const targetLabId = auth.lab_id;
+	if (visibility === 'public' && !auth.can_publish_public) {
+		return json(
+			{ error: "This API key is not authorized for visibility='public'. Ask a lab admin to enable can_publish_public." },
+			{ status: 403 }
+		);
 	}
 
 	const runsRoot = env.RUNS_ROOT ? resolve(env.RUNS_ROOT) : null;
@@ -154,20 +141,20 @@ export const POST: RequestHandler = async ({ request }) => {
 		await rsyncMirror(sourceDir, targetDir);
 
 		// Upsert the run row. ON CONFLICT bumps the record so a second
-		// deploy to the same slug updates in place. When visibility=public,
-		// targetLabId is the public lab (not the API key's owning lab) so
-		// the row lands directly there.
+		// deploy to the same slug updates in place. Visibility is set
+		// from the header — public runs stay in the owning lab, the lab
+		// transfer hack is gone.
 		db.prepare(
-			`INSERT INTO runs (lab_id, pipeline_id, slug, name, description, data_path, is_shared)
+			`INSERT INTO runs (lab_id, pipeline_id, slug, name, description, data_path, visibility)
 			 VALUES (?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(lab_id, slug) DO UPDATE SET
 			   pipeline_id = excluded.pipeline_id,
 			   name        = excluded.name,
 			   description = COALESCE(excluded.description, runs.description),
 			   data_path   = excluded.data_path,
-			   is_shared   = excluded.is_shared,
+			   visibility  = excluded.visibility,
 			   updated_at  = datetime('now')`
-		).run(targetLabId, pipeline.id, slug, name, description, targetDir, isShared);
+		).run(targetLabId, pipeline.id, slug, name, description, targetDir, visibility);
 
 		const run = db
 			.prepare('SELECT id FROM runs WHERE lab_id = ? AND slug = ?')

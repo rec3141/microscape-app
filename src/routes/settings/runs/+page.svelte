@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 
+	type Visibility = 'private' | 'shared' | 'public';
+
 	interface RunRow {
 		id: string;
 		slug: string;
 		name: string;
 		description: string | null;
 		data_path: string;
-		is_shared: number;
+		visibility: Visibility;
 		created_at: string;
 		pipeline_slug: string;
 		pipeline_name: string;
@@ -25,7 +27,9 @@
 	let name = $state('');
 	let dataPath = $state('');
 	let description = $state('');
-	let isShared = $state(false);
+	// Default new manually-registered runs to private; lab admins can flip the
+	// audience on the run's edit page.
+	let visibility = $state<Visibility>('private');
 	let busy = $state(false);
 	let error = $state('');
 
@@ -42,7 +46,7 @@
 				name: name.trim(),
 				description: description.trim() || null,
 				data_path: dataPath.trim(),
-				is_shared: isShared ? 1 : 0
+				visibility
 			})
 		});
 		busy = false;
@@ -55,9 +59,15 @@
 		name = '';
 		dataPath = '';
 		description = '';
-		isShared = false;
+		visibility = 'private';
 		await invalidateAll();
 	}
+
+	const VISIBILITY_BADGE: Record<Visibility, string> = {
+		private: '',
+		shared: 'shared',
+		public: 'public'
+	};
 
 	async function deleteRun(id: string, name: string) {
 		if (!confirm(`Delete run "${name}"? This does not touch the underlying files.`)) return;
@@ -114,13 +124,16 @@
 					class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-ocean-500"></textarea>
 			</label>
 
-			<label class="flex items-start gap-2 sm:col-span-2 text-sm text-slate-300">
-				<input type="checkbox" bind:checked={isShared} class="mt-0.5 rounded border-slate-700 bg-slate-800 text-ocean-500 focus:ring-ocean-500" />
-				<span class="block">
-					<span class="font-medium">Cross-lab shared</span>
-					<span class="block text-xs text-slate-500">
-						Any signed-in user can read it. Anonymous web access is a separate axis — set on the run's edit page via "Move to public lab".
-					</span>
+			<label class="block sm:col-span-2 text-sm text-slate-300">
+				<span class="block text-xs text-slate-400 mb-1">Audience</span>
+				<select bind:value={visibility}
+					class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-ocean-500">
+					<option value="private">Private (lab members only)</option>
+					<option value="shared">All signed-in users</option>
+					<option value="public">Public web (anyone, no login)</option>
+				</select>
+				<span class="block text-xs text-slate-500 mt-1">
+					Visibility is a property of the run itself — it stays in this lab regardless of audience. Per-user grants can be added on the run's edit page.
 				</span>
 			</label>
 
@@ -155,8 +168,8 @@
 								<span class="font-mono">{run.slug}</span>
 								<span>·</span>
 								<span class="font-mono text-slate-600">{run.data_path}</span>
-								{#if run.is_shared}
-									<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase tracking-wide text-[10px]">shared</span>
+								{#if VISIBILITY_BADGE[run.visibility]}
+									<span class="px-1.5 py-0.5 rounded {run.visibility === 'public' ? 'bg-amber-900/40 text-amber-300' : 'bg-slate-800 text-slate-400'} uppercase tracking-wide text-[10px]">{VISIBILITY_BADGE[run.visibility]}</span>
 								{/if}
 								{#if run.grant_count > 0}
 									<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase tracking-wide text-[10px]">{run.grant_count} grant{run.grant_count === 1 ? '' : 's'}</span>

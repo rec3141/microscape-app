@@ -9,16 +9,16 @@ import { z } from 'zod';
 
 const SHORT_TEXT = z.string().trim().max(200);
 const LONG_TEXT = z.string().max(10_000);
-const ROLE = z.enum(['viewer', 'user', 'admin']);
+// run_access grants are read-only by design (the lab-admin keeps edit rights
+// via lab_memberships.role). The column still allows the wider set for
+// historical rows; new grants always land as 'viewer'.
+const GRANT_ROLE = z.literal('viewer');
 
 // Convert empty strings to null so nullable columns stay NULL rather than ''.
 const optionalLongText = z.preprocess(
 	(v) => (typeof v === 'string' && v.trim() === '' ? null : v),
 	LONG_TEXT.nullable().optional()
 );
-
-// Accept boolean or 0/1 and normalize to 0/1.
-const boolish = z.union([z.boolean(), z.literal(0), z.literal(1)]).transform((v) => (v ? 1 : 0));
 
 export const VISIBILITY = z.enum(['private', 'shared', 'public']);
 export type Visibility = z.infer<typeof VISIBILITY>;
@@ -58,22 +58,21 @@ export const RunCreateBody = z.object({
 	name: SHORT_TEXT.min(1),
 	description: optionalLongText,
 	data_path: absolutePath,
-	is_shared: boolish.default(0)
+	visibility: VISIBILITY.default('private')
 });
 
-// PATCH body for /api/runs/[id]. `move_to: 'public' | '<lab_id>'` triggers
-// the dedicated transfer flow (admin-gated, see route handler). Plain
-// edits live in the other fields and are independent.
+// PATCH body for /api/runs/[id]. Visibility is one knob: private / shared /
+// public. None of these move the run between labs — anonymous web access
+// is now a property of the run itself, not its owning lab.
 export const RunUpdateBody = z.object({
 	slug: slug.optional(),
 	name: SHORT_TEXT.min(1).optional(),
 	description: optionalLongText,
 	data_path: absolutePath.optional(),
-	is_shared: boolish.optional(),
-	move_to: z.union([z.literal('public'), z.string().length(32)]).optional()
+	visibility: VISIBILITY.optional()
 });
 
 export const RunAccessGrantBody = z.object({
 	user_id: z.string().length(32),
-	role: ROLE.default('viewer')
+	role: GRANT_ROLE.default('viewer')
 });

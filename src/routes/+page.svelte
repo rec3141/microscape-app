@@ -4,7 +4,7 @@
 		slug: string;
 		name: string;
 		description: string | null;
-		is_shared: number;
+		visibility: 'private' | 'shared' | 'public';
 		created_at: string;
 		pipeline_slug: string;
 		pipeline_name: string;

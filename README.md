@@ -18,20 +18,23 @@ tree served via `X-Accel-Redirect` so bulk bytes never flow through Node.
 
 ## Access model
 
-Every run belongs to one lab. Visibility has two distinct axes:
+Every run belongs to one lab and carries one `visibility` value. None of
+the visibility modes move the run between labs — audience is a property
+of the run itself, decoupled from ownership.
 
-**Authenticated visibility** — a signed-in user sees a run when **any** hold:
+**Visibility modes** (`runs.visibility`):
 
-- They're an active member of the run's lab (`lab_memberships`).
-- They hold an explicit `run_access` row for the run (cross-lab grant).
-- `run.is_shared = 1` — any signed-in user in any lab can read.
+- `private` (default) — only members of the owning lab can read.
+- `shared` — any signed-in user, in any lab, can read.
+- `public` — anyone on the internet can read, no login required.
 
-**Anonymous web access** — visitors without a session reach a run only
-when the run's lab has `lab.slug = 'public'`. `is_shared` is irrelevant
-to anonymous traffic; the login wall still applies for any non-public-lab
-run. This separation lets a lab share a run cross-team without
-broadcasting it publicly, and lets a deliberate public showcase opt in
-explicitly.
+**Per-user grants** (`run_access`) overlay additional read access on top
+of the visibility mode — e.g. a `private` run with two specific
+cross-lab collaborators invited explicitly.
+
+**Edit access** is unchanged: only admins of the owning lab
+(`lab_memberships.role = 'admin'`) can reach `/settings/runs/<id>`.
+Visibility never grants edit rights; per-user grants are read-only.
 
 Runs are reached at two URLs, both with identical visibility checks:
 
@@ -47,8 +50,8 @@ Both trailing-slash-redirect bare slug URLs so relative asset URLs in SPAs
 
 Lab-admin-only, under `/settings/`:
 
-- **Runs** — register/edit/delete runs, flip `is_shared`, transfer to the
-  public lab for anonymous web access, manage per-user cross-lab grants.
+- **Runs** — register/edit/delete runs, set visibility (private / all
+  signed-in users / public web), manage per-user read grants.
 - **Invites** — one-time invite URLs scoped to a role + lab.
 - **Users** — list members, change roles, reset local passwords, remove
   members.
@@ -91,12 +94,12 @@ returns the run id, URL, and file count:
 
 **Visibility values:**
 
-- `private` (default) — lab-only; `is_shared=0`, lab = key's owning lab.
-- `shared` — any signed-in user can read (`is_shared=1`); login wall stays in force.
-- `public` — also transfers the run into the lab where `slug='public'` so anonymous
-  web visitors can read it. Requires the API key to have `can_publish_public=1`
-  (toggle per-key at `/settings/api-keys`); a key without that capability is
-  rejected with 403.
+- `private` (default) — lab-only.
+- `shared` — any signed-in user, in any lab, can read; login wall still applies.
+- `public` — anyone on the internet can read. The run STAYS in the key's owning
+  lab — only the audience changes. Requires the API key to have
+  `can_publish_public=1` (toggle per-key at `/settings/api-keys`); a key without
+  that capability is rejected with 403.
 
 **Mint a key** at `/settings/api-keys` — it's shown once, stored sha256-hashed
 server-side. Keys are lab-scoped (any key in a lab has the same deploy
