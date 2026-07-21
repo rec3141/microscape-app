@@ -47,7 +47,10 @@ const PUBLIC_API_ROUTES: Record<string, string[]> = {
 	// header inside the handler, not session cookies — so the session gate
 	// must let the request through. Admin-gate guards at the hook level
 	// would reject these too, so the handler does its own bearer check.
-	'/api/v1/deploy': ['POST']
+	'/api/v1/deploy': ['POST'],
+	// Service-token provisioning (OMC creates a per-user omc-<login> lab + deploy
+	// key). Authenticates with a Bearer service token inside the handler.
+	'/api/v1/provision': ['POST']
 	// /api/auth/setup-lab and /api/auth/join require an authenticated user
 	// (just one without a lab_id) — they're gated by the lab-setup
 	// allowlist below, NOT by being public.
