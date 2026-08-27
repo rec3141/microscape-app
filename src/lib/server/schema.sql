@@ -132,8 +132,10 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 -- ============================================================
 -- PIPELINES
 --
--- Global list of pipelines that produce gated outputs (microscape-nf,
--- danaseq-*). Not lab-scoped: the same pipeline feeds runs across many labs.
+-- Global list of pipelines that produce gated outputs (danaseq-*). Not
+-- lab-scoped: the same pipeline feeds runs across many labs. The slug here
+-- is what a deploy sends in X-Microscape-Pipeline, so renaming a pipeline
+-- means renaming its row — a slug this table does not carry is rejected.
 -- Seeded idempotently on first startup from scripts/seed-pipelines.mjs.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS pipelines (

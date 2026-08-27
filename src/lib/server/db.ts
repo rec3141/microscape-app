@@ -170,7 +170,7 @@ function seedDefaultAdmin(db: Database.Database, defaultLabId: string) {
  */
 function seedPipelines(db: Database.Database) {
 	const pipelines: { slug: string; name: string; description: string }[] = [
-		{ slug: 'microscape-nf', name: 'microscape-nf', description: 'Amplicon (16S/ITS) pipeline — ASV tables, taxonomy, phylogeny, networks.' },
+		{ slug: 'danaseq-illumina-amplicon', name: 'danaseq illumina_amplicon', description: 'Amplicon (16S/18S/ITS) pipeline — ASV tables, taxonomy, phylogeny, networks.' },
 		{ slug: 'danaseq-nanopore-live', name: 'danaseq nanopore_live', description: 'Per-barcode nanopore classification (kraken/bakta/prokka/sketch/tetra/hmm).' },
 		{ slug: 'danaseq-nanopore-assembly', name: 'danaseq nanopore_assembly', description: 'Long-read metagenome assembly (Flye/metaMDBG/myloasm) + mapping.' },
 		{ slug: 'danaseq-illumina-assembly', name: 'danaseq illumina_assembly', description: 'Short-read metagenome assembly (Tadpole/Megahit/SPAdes) + mapping.' },

@@ -1,5 +1,5 @@
 // Core entity types for microscape-app: a gatekeeper that issues permissioned
-// access to pipeline-run outputs produced by microscape-nf and danaseq.
+// access to pipeline-run outputs produced by danaseq.
 
 /** Lab (tenant). Every run is scoped to a lab; users access data through lab
  *  membership plus optional per-run access grants. */
