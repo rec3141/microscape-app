@@ -93,7 +93,10 @@ export const POST: RequestHandler = async ({ request }) => {
 				`UPDATE api_keys SET revoked_at = datetime('now')
 				 WHERE lab_id = ? AND name = 'omc-deploy' AND revoked_at IS NULL`
 			).run(labId);
-			const key = insertApiKey(labId, 'omc-deploy', user.id, 0);
+			// can_publish_public=1: OMC deploys its viz runs as public so the
+			// "Explore Data" link works for authors, collaborators and reviewers
+			// without a microscape.app login. Without it /api/v1/deploy 403s.
+			const key = insertApiKey(labId, 'omc-deploy', user.id, 1);
 
 			return { lab_slug: labSlug, lab_id: labId, deploy_key: key.plaintext };
 		})();

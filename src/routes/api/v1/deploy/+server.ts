@@ -230,7 +230,10 @@ function extractTarGz(body: ReadableStream<Uint8Array>, tmpDir: string): Promise
 async function rsyncMirror(src: string, dst: string): Promise<void> {
 	return new Promise((resolveP, rejectP) => {
 		// Trailing slash on src is important — copies contents, not the dir.
-		const proc = spawn('rsync', ['-a', '--delete', `${src}/`, `${dst}/`], {
+		// --chmod normalises modes: the staging dir comes from mkdtemp (0700) and
+		// rsync -a would propagate that to the published run, leaving nginx with
+		// 403 Forbidden. Force dirs 755 / files 644 so runs are web-readable.
+		const proc = spawn('rsync', ['-a', '--chmod=D755,F644', '--delete', `${src}/`, `${dst}/`], {
 			stdio: ['ignore', 'ignore', 'pipe']
 		});
 		let stderr = '';
