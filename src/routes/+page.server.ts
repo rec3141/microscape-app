@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				'public' AS access_via
 			FROM runs r
 			JOIN pipelines p ON p.id = r.pipeline_id
-			JOIN labs l ON l.id = r.lab_id
+			JOIN labs l ON l.id = r.lab_id AND l.deleted_at IS NULL
 			WHERE r.visibility = 'public'
 			ORDER BY r.created_at DESC
 		`).all();
@@ -45,7 +45,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			END AS access_via
 		FROM runs r
 		JOIN pipelines p ON p.id = r.pipeline_id
-		JOIN labs l ON l.id = r.lab_id
+		JOIN labs l ON l.id = r.lab_id AND l.deleted_at IS NULL
 		LEFT JOIN run_access ra
 		  ON ra.run_id = r.id AND ra.user_id = ?
 		WHERE r.lab_id = ?

@@ -58,7 +58,7 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
 	const run = db.prepare(
 		`SELECT r.id, r.data_path, r.visibility, l.slug AS lab_slug
 		 FROM runs r
-		 JOIN labs l ON l.id = r.lab_id
+		 JOIN labs l ON l.id = r.lab_id AND l.deleted_at IS NULL
 		 LEFT JOIN lab_memberships m
 		   ON m.lab_id = r.lab_id AND m.user_id = ? AND m.status = 'active'
 		 LEFT JOIN run_access ra

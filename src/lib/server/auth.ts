@@ -82,6 +82,7 @@ export function validateSession(sessionId: string): User | null {
 		JOIN users u ON u.id = s.user_id
 		LEFT JOIN lab_memberships m
 		  ON m.user_id = u.id AND m.lab_id = u.active_lab_id AND m.status = 'active'
+		  AND m.lab_id IN (SELECT id FROM labs WHERE deleted_at IS NULL)
 		WHERE s.id = ?
 		  AND s.expires_at > datetime('now')
 	`).get(sessionId) as User | undefined;

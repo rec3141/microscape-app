@@ -20,6 +20,11 @@ CREATE TABLE IF NOT EXISTS labs (
     github_token TEXT,
     backup_interval_hours INTEGER,
     last_backup_at TEXT,
+    -- Soft delete: set by DELETE /api/lab. A deleted lab is invisible
+    -- everywhere (sessions, listings, file serving, API keys) but its rows
+    -- and run data stay on disk until the purge sweep hard-deletes them
+    -- 30 days later (see purgeExpiredDeletedLabs in db.ts).
+    deleted_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

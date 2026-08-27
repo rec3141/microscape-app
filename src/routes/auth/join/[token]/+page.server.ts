@@ -21,7 +21,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const row = db.prepare(`
 		SELECT i.token, i.role, i.email_hint, i.expires_at, i.used_at, l.name AS lab_name
 		FROM invites i
-		JOIN labs l ON l.id = i.lab_id
+		JOIN labs l ON l.id = i.lab_id AND l.deleted_at IS NULL
 		WHERE i.token = ?
 	`).get(params.token) as InviteRow | undefined;
 

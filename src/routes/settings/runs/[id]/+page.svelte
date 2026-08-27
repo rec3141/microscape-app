@@ -38,7 +38,6 @@
 	// Edit form state — initialized from the loaded run.
 	let slug = $state(data.run.slug);
 	let name = $state(data.run.name);
-	let dataPath = $state(data.run.data_path);
 	let description = $state(data.run.description ?? '');
 	let saveBusy = $state(false);
 	let saveError = $state('');
@@ -71,7 +70,6 @@
 			body: JSON.stringify({
 				slug: slug.trim(),
 				name: name.trim(),
-				data_path: dataPath.trim(),
 				description: description.trim() || null
 			})
 		});
@@ -180,11 +178,10 @@
 					class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-ocean-500" />
 			</label>
 
-			<label class="block sm:col-span-2">
-				<span class="block text-xs text-slate-400 mb-1">Data path</span>
-				<input bind:value={dataPath} required pattern="/.*"
-					class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-ocean-500 font-mono text-sm" />
-			</label>
+			<div class="block sm:col-span-2">
+				<span class="block text-xs text-slate-400 mb-1">Data path <span class="text-slate-600">(fixed — deploys write here; editing it would only break file serving)</span></span>
+				<div class="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-slate-400 font-mono text-sm break-all select-all">{data.run.data_path}</div>
+			</div>
 
 			<label class="block sm:col-span-2">
 				<span class="block text-xs text-slate-400 mb-1">Description</span>

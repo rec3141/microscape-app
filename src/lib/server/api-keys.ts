@@ -61,8 +61,9 @@ export function authenticateApiKey(token: string): AuthenticatedKey | null {
 	const db = getDb();
 	const row = db
 		.prepare(
-			`SELECT id, lab_id, name, can_publish_public FROM api_keys
-			 WHERE key_hash = ? AND revoked_at IS NULL`
+			`SELECT k.id, k.lab_id, k.name, k.can_publish_public FROM api_keys k
+			 JOIN labs l ON l.id = k.lab_id AND l.deleted_at IS NULL
+			 WHERE k.key_hash = ? AND k.revoked_at IS NULL`
 		)
 		.get(sha256(token)) as AuthenticatedKey | undefined;
 	if (!row) return null;

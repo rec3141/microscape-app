@@ -64,13 +64,18 @@ export const RunCreateBody = z.object({
 // PATCH body for /api/runs/[id]. Visibility is one knob: private / shared /
 // public. None of these move the run between labs — anonymous web access
 // is now a property of the run itself, not its owning lab.
-export const RunUpdateBody = z.object({
-	slug: slug.optional(),
-	name: SHORT_TEXT.min(1).optional(),
-	description: optionalLongText,
-	data_path: absolutePath.optional(),
-	visibility: VISIBILITY.optional()
-});
+// data_path is deliberately NOT updatable: the path is where deploys land
+// and where files are served from — editing it in the admin UI would just
+// point the run at a directory that doesn't exist and make it inaccessible.
+// It is set at registration (POST /api/runs) or by /api/v1/deploy only.
+export const RunUpdateBody = z
+	.object({
+		slug: slug.optional(),
+		name: SHORT_TEXT.min(1).optional(),
+		description: optionalLongText,
+		visibility: VISIBILITY.optional()
+	})
+	.strip();
 
 export const RunAccessGrantBody = z.object({
 	user_id: z.string().length(32),

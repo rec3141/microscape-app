@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import bcrypt from 'bcrypt';
-import { mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { mkdirSync, rmSync } from 'fs';
+import { dirname, resolve } from 'path';
 import schema from './schema.sql?raw';
 import { startBackupScheduler } from './github';
 
@@ -33,6 +33,8 @@ export function getDb(): Database.Database {
 		// to call from the lazy-init path because it just installs a
 		// setInterval and returns.
 		startBackupScheduler();
+		// Daily sweep hard-deleting labs 30 days after their soft delete.
+		startDeletedLabPurge(_db);
 	}
 	return _db;
 }
@@ -84,6 +86,60 @@ function runMigrations(db: Database.Database) {
 		db.exec('ALTER TABLE api_keys ADD COLUMN can_publish_public INTEGER NOT NULL DEFAULT 0');
 		console.log('[migrate] api_keys.can_publish_public added');
 	}
+
+	if (!cols('labs').has('deleted_at')) {
+		db.exec('ALTER TABLE labs ADD COLUMN deleted_at TEXT');
+		console.log('[migrate] labs.deleted_at added (soft delete)');
+	}
+}
+
+/**
+ * Hard-delete labs whose soft-delete grace period (30 days) has expired:
+ * remove each run's data directory (only when safely under RUNS_ROOT),
+ * then delete the lab row — runs, memberships, api keys, invites and
+ * feedback go with it via FK cascades. Runs daily; installed once from
+ * getDb()'s lazy-init path.
+ */
+let _purgeTimer: ReturnType<typeof setInterval> | null = null;
+function startDeletedLabPurge(db: Database.Database) {
+	if (_purgeTimer) return;
+	const sweep = () => {
+		try {
+			const expired = db
+				.prepare(
+					`SELECT id, name FROM labs
+					 WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-30 days')`
+				)
+				.all() as { id: string; name: string }[];
+			if (expired.length === 0) return;
+			const runsRoot = process.env.RUNS_ROOT ? resolve(process.env.RUNS_ROOT) : null;
+			for (const lab of expired) {
+				const runs = db
+					.prepare('SELECT slug, data_path FROM runs WHERE lab_id = ?')
+					.all(lab.id) as { slug: string; data_path: string }[];
+				for (const run of runs) {
+					const dataPath = resolve(run.data_path);
+					// Same containment rule as serve-run-file: never touch paths
+					// outside RUNS_ROOT (or anything at all if RUNS_ROOT is unset).
+					if (!runsRoot || !(dataPath + '/').startsWith(runsRoot + '/') || dataPath === runsRoot) {
+						console.warn(`[purge] skipping data dir outside RUNS_ROOT: ${dataPath} (run ${run.slug})`);
+						continue;
+					}
+					rmSync(dataPath, { recursive: true, force: true });
+					console.log(`[purge] removed run data ${dataPath} (lab ${lab.name})`);
+				}
+				db.prepare("UPDATE users SET active_lab_id = NULL WHERE active_lab_id = ?").run(lab.id);
+				db.prepare("UPDATE users SET lab_id = NULL WHERE lab_id = ?").run(lab.id);
+				db.prepare('DELETE FROM labs WHERE id = ?').run(lab.id);
+				console.log(`[purge] lab '${lab.name}' hard-deleted (30-day grace expired)`);
+			}
+		} catch (err) {
+			console.error('[purge] deleted-lab sweep failed', err);
+		}
+	};
+	sweep();
+	_purgeTimer = setInterval(sweep, 24 * 60 * 60 * 1000);
+	_purgeTimer.unref?.();
 }
 
 /**

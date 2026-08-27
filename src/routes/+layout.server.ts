@@ -16,7 +16,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 				.prepare(
 					`SELECT l.id, l.name, l.slug, m.role
 					 FROM lab_memberships m
-					 JOIN labs l ON l.id = m.lab_id
+					 JOIN labs l ON l.id = m.lab_id AND l.deleted_at IS NULL
 					 WHERE m.user_id = ? AND m.status = 'active'
 					 ORDER BY l.name`
 				)

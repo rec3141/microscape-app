@@ -5,21 +5,21 @@ import { requireLabAdmin } from '$lib/server/guards';
 import { apiError } from '$lib/server/api-errors';
 
 /**
- * Delete the caller's lab. WIPES every project, sample, site, extract,
- * PCR plate / amp, library plate / prep, sequencing run + run-libraries
- * link, analysis, personnel, picklist, primer set, pcr protocol, saved
- * cart, invite, db_snapshot, and feedback row owned by this lab.
+ * SOFT-delete the caller's lab: stamps labs.deleted_at, after which the
+ * lab and everything in it (runs, file serving, API keys, memberships)
+ * is invisible everywhere. Rows and run data stay intact for 30 days —
+ * the purge sweep in db.ts then hard-deletes the lab and removes its
+ * runs' data directories from RUNS_ROOT. Until the purge fires, an
+ * operator can restore the lab by nulling deleted_at.
  *
- * Existing users in the lab are NOT deleted. Their lab_id is set to
- * NULL and role reverts to 'user' — they hit the lab-setup gate on
- * their next page load and can either start a new lab or accept an
- * invite. Their sessions are wiped so a stale tab can't keep operating
- * on a half-gone lab.
+ * Existing users in the lab are NOT deleted. Their active lab is
+ * re-pointed at another (live) membership, or they hit the lab-setup
+ * gate on their next page load. Their sessions are wiped so a stale tab
+ * can't keep operating on a half-gone lab.
  *
  * Confirmation: body must include `confirm: "<lab name>"` (case-sensitive,
  * the literal name, not slug). GitHub-style "type the name to confirm"
- * pattern. The whole operation runs in a transaction so a partial wipe
- * can't happen.
+ * pattern. The whole operation runs in a transaction.
  */
 export const DELETE: RequestHandler = async ({ request, locals, cookies }) => {
 	const { user, labId } = requireLabAdmin(locals);
@@ -35,8 +35,8 @@ export const DELETE: RequestHandler = async ({ request, locals, cookies }) => {
 	try {
 		const db = getDb();
 		const lab = db
-			.prepare('SELECT id, name, slug FROM labs WHERE id = ?')
-			.get(labId) as { id: string; name: string; slug: string } | undefined;
+			.prepare('SELECT id, name, slug, deleted_at FROM labs WHERE id = ?')
+			.get(labId) as { id: string; name: string; slug: string; deleted_at: string | null } | undefined;
 		if (!lab) return json({ error: 'Lab not found' }, { status: 404 });
 
 		if (typeof body.confirm !== 'string' || body.confirm !== lab.name) {
@@ -46,31 +46,19 @@ export const DELETE: RequestHandler = async ({ request, locals, cookies }) => {
 			);
 		}
 
-		// foreign_keys was turned ON in getDb(), so the DELETE FROM labs
-		// below cascades through every CASCADE-configured FK (projects →
-		// sites/samples/extracts/etc., personnel, picklists, primer sets,
-		// pcr protocols, saved_carts, db_snapshots, invites, feedback).
-		// users.lab_id is the only no-cascade FK touching labs — null it
-		// out first so the DELETE doesn't fail with a constraint error.
-		//
-		// defer_foreign_keys: a few intra-lab FKs use RESTRICT / NO ACTION
-		// rather than CASCADE — samples.site_id (RESTRICT), library_plates.
-		// pcr_plate_id (NO ACTION), and the primer_set_id refs on pcr_plates
-		// + pcr_amplifications. RESTRICT in particular fires immediately,
-		// not at end-of-statement, so during the cascade the engine can
-		// briefly see a samples row pointing at a sites row that's about
-		// to be deleted (or a library_plate pointing at a doomed pcr_plate)
-		// and reject. defer_foreign_keys = ON pushes ALL FK checks to
-		// commit time, by which point the whole sub-graph is gone and
-		// every constraint is satisfied. The pragma is automatically reset
-		// at the end of the transaction (it's per-tx, not session-wide).
+		if (lab.deleted_at) return json({ error: 'Lab is already deleted' }, { status: 400 });
+
 		db.transaction(() => {
-			db.pragma('defer_foreign_keys = ON');
+			// Soft delete: the single stamp that hides the lab everywhere.
+			// Rows and run data survive until the 30-day purge sweep.
+			db.prepare(
+				"UPDATE labs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+			).run(labId);
 			// Drop sessions for everyone in this lab so half-loaded tabs
 			// don't keep operating against deleted data — EXCEPT the
 			// deleting admin's own session, so they get gracefully
-			// redirected to /auth/setup-lab on their next request rather
-			// than booted out to /auth/login mid-flow.
+			// redirected on their next request rather than booted out to
+			// /auth/login mid-flow.
 			if (callerSessionId) {
 				db.prepare(
 					`DELETE FROM sessions
@@ -82,29 +70,21 @@ export const DELETE: RequestHandler = async ({ request, locals, cookies }) => {
 					'DELETE FROM sessions WHERE user_id IN (SELECT user_id FROM lab_memberships WHERE lab_id = ?)'
 				).run(labId);
 			}
-			// Clear both active_lab_id and legacy lab_id for any user
-			// pointing at this lab. The legacy lab_id FK has no CASCADE,
-			// so it must be nulled before the labs row is deleted.
-			db.prepare(
-				"UPDATE users SET active_lab_id = NULL, lab_id = NULL, role = 'user', updated_at = datetime('now') WHERE active_lab_id = ? OR lab_id = ?"
-			).run(labId, labId);
-			// lab_memberships rows cascade-delete from labs FK
-			db.prepare('DELETE FROM labs WHERE id = ?').run(labId);
-			// Fall back: if a user still has memberships in other labs,
-			// point active_lab_id at their first remaining one so they
-			// don't get stranded at /auth/setup-lab.
+			// Re-point anyone whose active lab this was at their first
+			// remaining LIVE membership (or NULL → lab-setup gate).
 			db.prepare(
 				`UPDATE users SET active_lab_id = (
 				   SELECT m.lab_id FROM lab_memberships m
+				   JOIN labs l ON l.id = m.lab_id AND l.deleted_at IS NULL
 				   WHERE m.user_id = users.id AND m.status = 'active'
 				   LIMIT 1
-				 ) WHERE active_lab_id IS NULL
-				   AND EXISTS (SELECT 1 FROM lab_memberships m2
-				               WHERE m2.user_id = users.id AND m2.status = 'active')`
-			).run();
+				 ), updated_at = datetime('now')
+				 WHERE active_lab_id = ?`
+			).run(labId);
+			db.prepare('UPDATE users SET lab_id = NULL WHERE lab_id = ?').run(labId);
 		})();
 
-		return json({ ok: true, name: lab.name });
+		return json({ ok: true, name: lab.name, purge_after_days: 30 });
 	} catch (err) {
 		return apiError(err);
 	}

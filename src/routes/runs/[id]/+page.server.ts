@@ -33,7 +33,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			CASE WHEN m.role = 'admin' THEN 1 ELSE 0 END AS can_edit
 		FROM runs r
 		JOIN pipelines p ON p.id = r.pipeline_id
-		JOIN labs l ON l.id = r.lab_id
+		JOIN labs l ON l.id = r.lab_id AND l.deleted_at IS NULL
 		LEFT JOIN lab_memberships m
 		  ON m.lab_id = r.lab_id AND m.user_id = ? AND m.status = 'active'
 		LEFT JOIN run_access ra
