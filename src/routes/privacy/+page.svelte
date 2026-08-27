@@ -8,7 +8,7 @@
 
 	<p>
 		microscape.app hosts dashboards and artifacts produced by sequencing
-		pipelines (microscape-nf, danaseq) for authorized lab members. Each
+		pipelines (danaseq) for authorized lab members. Each
 		deployment is operated by a single research group or consortium; this
 		page describes the practices of <strong>this</strong> deployment.
 		Other instances of the software may behave differently.

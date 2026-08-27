@@ -43,7 +43,7 @@
 	<header class="space-y-1">
 		<h1 class="text-2xl font-semibold">Pipeline runs</h1>
 		<p class="text-sm text-slate-400">
-			Dashboards and artifacts from microscape-nf and danaseq pipelines.
+			Dashboards and artifacts from danaseq pipelines.
 		</p>
 	</header>
 

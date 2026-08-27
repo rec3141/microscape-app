@@ -4,8 +4,8 @@ Web portal in front of bioinformatics-pipeline outputs: lab-admins register
 pipeline runs, grant access, and pipelines push new output bundles directly
 from CI via a bearer-token API. The primary deployment serves
 [microscape.app](https://microscape.app) as the permissioned portal for the
-[microscape-nf](https://github.com/rec3141/microscape-nf) and
-[danaseq](https://github.com/rec3141/danaseq) pipelines.
+[danaseq](https://github.com/rec3141/danaseq) pipelines (nanopore_live,
+illumina_amplicon, the assembly pipelines, and friends).
 
 ## Stack
 
