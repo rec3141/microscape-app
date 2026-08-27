@@ -179,7 +179,7 @@
 			</label>
 
 			<div class="block sm:col-span-2">
-				<span class="block text-xs text-slate-400 mb-1">Data path <span class="text-slate-600">(fixed — deploys write here; editing it would only break file serving)</span></span>
+				<span class="block text-xs text-slate-400 mb-1">Data path</span>
 				<div class="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-slate-400 font-mono text-sm break-all select-all">{data.run.data_path}</div>
 			</div>
 
