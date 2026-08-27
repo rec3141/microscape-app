@@ -26,10 +26,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 			WHERE r.visibility = 'public'
 			ORDER BY r.created_at DESC
 		`).all();
-		return { runs };
+		return { runs, signedIn: false };
 	}
 
-	if (!locals.user.lab_id) return { runs: [] };
+	if (!locals.user.lab_id) return { runs: [], signedIn: true };
 
 	const runs = db.prepare(`
 		SELECT
@@ -56,5 +56,5 @@ export const load: PageServerLoad = async ({ locals }) => {
 		  r.created_at DESC
 	`).all(locals.user.lab_id, locals.user.id, locals.user.lab_id, locals.user.lab_id);
 
-	return { runs };
+	return { runs, signedIn: true };
 };

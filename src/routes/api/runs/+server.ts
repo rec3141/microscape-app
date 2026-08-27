@@ -53,6 +53,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			.get(data.pipeline_id);
 		if (!pipeline) return json({ error: 'Unknown pipeline' }, { status: 400 });
 
+		// Same cross-lab slug guard as /api/v1/deploy: run dirs and URLs are
+		// keyed by slug alone, so a slug may only ever belong to one lab.
+		const slugOwner = db
+			.prepare('SELECT 1 FROM runs WHERE slug = ? AND lab_id != ?')
+			.get(data.slug, labId);
+		if (slugOwner) {
+			return json({ error: `Slug '${data.slug}' already belongs to another lab` }, { status: 409 });
+		}
+
 		db.prepare(
 			`INSERT INTO runs (id, lab_id, pipeline_id, slug, name, description, data_path, visibility, created_by)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`

@@ -108,6 +108,23 @@ export const POST: RequestHandler = async ({ request }) => {
 		);
 	}
 
+	// Run directories live at RUNS_ROOT/<slug> but the runs table is only
+	// unique per (lab_id, slug) — without this guard, a deploy from lab B
+	// reusing lab A's slug would rsync --delete straight over lab A's files
+	// while lab A's row still points at the directory.
+	const slugOwner = db
+		.prepare(
+			`SELECT l.name AS lab_name FROM runs r JOIN labs l ON l.id = r.lab_id
+			 WHERE r.slug = ? AND r.lab_id != ?`
+		)
+		.get(slug, targetLabId) as { lab_name: string } | undefined;
+	if (slugOwner) {
+		return json(
+			{ error: `Slug '${slug}' already belongs to another lab (${slugOwner.lab_name}). Choose a different slug.` },
+			{ status: 409 }
+		);
+	}
+
 	const runsRoot = env.RUNS_ROOT ? resolve(env.RUNS_ROOT) : null;
 	if (!runsRoot) {
 		console.error('[deploy] RUNS_ROOT not configured');
