@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { createReadStream, statSync, type ReadStream } from 'fs';
 import { resolve, sep, extname } from 'path';
+import { metadataOverrideResponse } from './run-metadata';
 
 /**
  * Resolve a subpath under a run's data_path and return an HTTP response.
@@ -133,7 +134,7 @@ function safeStat(path: string): Stat | null {
 }
 
 export function serveRunFile(
-	run: { data_path: string; visibility: string; lab_slug?: string },
+	run: { id: string; data_path: string; visibility: string; lab_slug?: string },
 	subpath: string,
 	headers: { acceptEncoding: string | null }
 ): Response {
@@ -145,6 +146,9 @@ export function serveRunFile(
 	}
 
 	let sub = subpath ?? '';
+	// Admin-uploaded metadata wins over the bundle's data/metadata.json.
+	const override = metadataOverrideResponse(run.id, sub, run.visibility);
+	if (override) return override;
 	if (sub === '' || sub.endsWith('/')) sub += 'index.html';
 	const target = resolve(dataPath, sub);
 	if (!isUnder(target, dataPath)) throw error(404, 'Not found');

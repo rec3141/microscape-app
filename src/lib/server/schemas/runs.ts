@@ -81,3 +81,13 @@ export const RunAccessGrantBody = z.object({
 	user_id: z.string().length(32),
 	role: GRANT_ROLE.default('viewer')
 });
+
+// Sample metadata as produced by $lib/metadata.ts: sample key →
+// { column: value }. Filtering against the run's samples happens server-side.
+export const RunMetadataBody = z.object({
+	filename: z.string().trim().min(1).max(255),
+	metadata: z.record(
+		z.string().max(200),
+		z.record(z.string().max(200), z.union([z.string().max(10_000), z.number()]))
+	)
+});

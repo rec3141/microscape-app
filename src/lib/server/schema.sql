@@ -204,6 +204,24 @@ CREATE TABLE IF NOT EXISTS run_access (
 CREATE INDEX IF NOT EXISTS idx_run_access_user ON run_access(user_id);
 
 -- ============================================================
+-- RUN METADATA
+--
+-- Admin-uploaded sample metadata for a run, keyed FLOWCELL:barcodeNN the
+-- same way the viz's own in-browser upload is. When a row exists, the file
+-- endpoints serve it in place of the bundle's data/metadata.json(.gz), so
+-- every viewer sees it without re-uploading. Kept in the DB rather than
+-- under data_path because a pipeline redeploy rsync --deletes that tree.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS run_metadata (
+    run_id       TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    filename     TEXT NOT NULL,
+    content      TEXT NOT NULL,  -- JSON: { "<sample key>": { "<column>": value } }
+    sample_count INTEGER NOT NULL,
+    uploaded_by  TEXT REFERENCES users(id),
+    uploaded_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ============================================================
 -- FEEDBACK
 -- ============================================================
 CREATE TABLE IF NOT EXISTS feedback (

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
+	import { parseMetadataFile, metadataToTsv, type SampleMetadata } from '$lib/metadata';
 
 	type Visibility = 'private' | 'shared' | 'public';
 
@@ -30,8 +31,14 @@
 		email: string | null;
 	}
 
+	interface MetadataInfo {
+		upload: { filename: string; sample_count: number; uploaded_at: string } | null;
+		bundle_has_metadata: boolean;
+		run_sample_ids: string[];
+	}
+
 	interface Props {
-		data: { run: RunRow; grants: Grant[]; grantableUsers: GrantableUser[] };
+		data: { run: RunRow; grants: Grant[]; grantableUsers: GrantableUser[]; metadata: MetadataInfo };
 	}
 	let { data }: Props = $props();
 
@@ -139,6 +146,83 @@
 		if (res.ok) await invalidateAll();
 	}
 
+	// Sample metadata. The file is parsed in the browser; the preview shows
+	// which rows match this run's samples, and the server keeps only those
+	// (so a lab-wide master sheet can be uploaded unchanged).
+	const runSampleIds = $derived(new Set(data.metadata.run_sample_ids));
+	let metaInput = $state<HTMLInputElement | null>(null);
+	let metaPending = $state<{ filename: string; metadata: SampleMetadata; matched: string[]; total: number } | null>(null);
+	let metaBusy = $state(false);
+	let metaError = $state('');
+	let metaOk = $state('');
+	const metaUnmatchedSamples = $derived(
+		metaPending ? data.metadata.run_sample_ids.filter((id) => !(id in metaPending!.metadata)) : []
+	);
+
+	async function pickMetadata(e: Event) {
+		const file = (e.currentTarget as HTMLInputElement).files?.[0];
+		metaError = '';
+		metaOk = '';
+		metaPending = null;
+		if (!file) return;
+		const result = await parseMetadataFile(file);
+		if (metaInput) metaInput.value = '';
+		if (!result.ok) {
+			metaError = result.error;
+			return;
+		}
+		const matched = Object.keys(result.metadata).filter((k) => runSampleIds.has(k));
+		if (matched.length === 0) {
+			metaError = `None of the ${result.total} rows in ${file.name} match this run's ${runSampleIds.size} samples.`;
+			return;
+		}
+		metaPending = { filename: file.name, metadata: result.metadata, matched, total: result.total };
+	}
+
+	async function saveMetadata() {
+		if (!metaPending) return;
+		metaBusy = true;
+		metaError = '';
+		const res = await fetch(`/api/runs/${data.run.id}/metadata`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ filename: metaPending.filename, metadata: metaPending.metadata })
+		});
+		metaBusy = false;
+		const body = await res.json().catch(() => ({ error: 'Upload failed' }));
+		if (!res.ok) {
+			metaError = body.error || body.issues?.[0]?.message || 'Upload failed';
+			return;
+		}
+		metaPending = null;
+		metaOk = `Saved metadata for ${body.kept} samples${body.discarded ? ` (${body.discarded} rows for other samples discarded)` : ''}.`;
+		await invalidateAll();
+	}
+
+	async function downloadMetadata() {
+		const res = await fetch(`/api/runs/${data.run.id}/metadata`);
+		const body = await res.json().catch(() => null);
+		if (!res.ok || !body) return;
+		const url = URL.createObjectURL(new Blob([metadataToTsv(body.metadata)], { type: 'text/tab-separated-values' }));
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `${data.run.slug}_metadata.tsv`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	async function removeMetadata() {
+		const fallback = data.metadata.bundle_has_metadata
+			? 'Viewers will see the metadata bundled with the run instead.'
+			: 'Viewers will see no metadata until a new file is uploaded.';
+		if (!confirm(`Remove the uploaded metadata for "${data.run.name}"?\n\n${fallback}`)) return;
+		const res = await fetch(`/api/runs/${data.run.id}/metadata`, { method: 'DELETE' });
+		if (res.ok) {
+			metaOk = '';
+			await invalidateAll();
+		}
+	}
+
 	async function deleteRun() {
 		if (!confirm(`Delete run "${data.run.name}"? This does not touch the underlying files.`)) return;
 		const res = await fetch(`/api/runs/${data.run.id}`, { method: 'DELETE' });
@@ -207,6 +291,80 @@
 				</button>
 			</div>
 		</form>
+	</section>
+
+	<section class="rounded border border-slate-800 bg-slate-900/40 p-4 space-y-4">
+		<header class="flex items-baseline justify-between gap-4">
+			<h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Sample metadata</h2>
+			<span class="text-xs text-slate-500">{data.metadata.run_sample_ids.length} samples in this run</span>
+		</header>
+		<p class="text-xs text-slate-500">
+			Shown to everyone who opens this run, and kept across pipeline redeploys. TSV, CSV or XLSX with
+			<span class="font-mono">flowcell</span> + <span class="font-mono">barcode</span> columns, or one
+			<span class="font-mono">sample_id</span> column (e.g. <span class="font-mono">FAR84275_barcode01</span>).
+			A master sheet is fine — only rows for this run's samples are kept.
+		</p>
+
+		{#if data.metadata.upload}
+			<div class="flex flex-wrap items-center justify-between gap-3 text-sm">
+				<div>
+					<span class="text-slate-200">{data.metadata.upload.filename}</span>
+					<span class="text-slate-500"> · {data.metadata.upload.sample_count} samples · uploaded {data.metadata.upload.uploaded_at.split(' ')[0]}</span>
+				</div>
+				<div class="flex items-center gap-3">
+					<button type="button" onclick={downloadMetadata} class="text-ocean-400 hover:text-ocean-300 text-xs">Download TSV</button>
+					<button type="button" onclick={removeMetadata} class="text-red-400 hover:text-red-300 text-xs">Remove</button>
+				</div>
+			</div>
+		{:else}
+			<p class="text-sm text-slate-500 italic">
+				{data.metadata.bundle_has_metadata ? 'No upload — viewers see the metadata bundled with the run.' : 'No metadata uploaded.'}
+			</p>
+		{/if}
+
+		{#if data.metadata.run_sample_ids.length === 0}
+			<p class="text-sm text-amber-300/80">
+				This run's bundle has no <span class="font-mono">data/samples.json</span>, so uploaded rows can't be matched to samples.
+			</p>
+		{:else}
+			<div class="flex flex-wrap items-center gap-3">
+				<input type="file" accept=".tsv,.txt,.csv,.xlsx" class="hidden" bind:this={metaInput} onchange={pickMetadata} />
+				<button type="button" onclick={() => metaInput?.click()} disabled={metaBusy}
+					class="px-4 py-2 bg-slate-800 border border-slate-700 text-slate-200 rounded hover:border-slate-600 disabled:opacity-50 transition-colors text-sm">
+					{data.metadata.upload ? 'Replace from file…' : 'Choose file…'}
+				</button>
+			</div>
+		{/if}
+
+		{#if metaPending}
+			<div class="p-3 rounded border border-slate-700 bg-slate-800/40 space-y-2 text-sm">
+				<p class="text-slate-200">
+					<span class="font-medium">{metaPending.filename}</span>: {metaPending.matched.length} of {metaPending.total} rows match this run's samples
+					{#if metaPending.total > metaPending.matched.length}
+						<span class="text-slate-400">— the other {metaPending.total - metaPending.matched.length} will be discarded.</span>
+					{/if}
+				</p>
+				{#if metaUnmatchedSamples.length > 0}
+					<p class="text-xs text-amber-300/80">
+						{metaUnmatchedSamples.length} run sample{metaUnmatchedSamples.length === 1 ? '' : 's'} with no row:
+						<span class="font-mono">{metaUnmatchedSamples.slice(0, 8).join(', ')}{metaUnmatchedSamples.length > 8 ? ', …' : ''}</span>
+					</p>
+				{/if}
+				<div class="flex items-center gap-3">
+					<button type="button" onclick={saveMetadata} disabled={metaBusy}
+						class="px-4 py-2 bg-ocean-600 text-white rounded hover:bg-ocean-500 disabled:opacity-50 transition-colors text-sm font-medium">
+						{metaBusy ? 'Saving…' : `Save ${metaPending.matched.length} samples`}
+					</button>
+					<button type="button" onclick={() => (metaPending = null)} class="text-slate-400 hover:text-slate-300 text-sm">Cancel</button>
+				</div>
+			</div>
+		{/if}
+		{#if metaError}
+			<div class="p-2 rounded bg-red-900/30 border border-red-800 text-red-300 text-sm">{metaError}</div>
+		{/if}
+		{#if metaOk}
+			<div class="p-2 rounded bg-emerald-900/30 border border-emerald-800 text-emerald-300 text-sm">{metaOk}</div>
+		{/if}
 	</section>
 
 	<!--

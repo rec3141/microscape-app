@@ -2,6 +2,7 @@ import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
 import { requireLabAdmin } from '$lib/server/guards';
+import { bundleHasMetadata, getRunMetadata, readRunSampleIds } from '$lib/server/run-metadata';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const { labId } = requireLabAdmin(locals);
@@ -39,5 +40,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		 ORDER BY u.username`
 	).all(labId);
 
-	return { run, grants, grantableUsers };
+	// Uploaded sample metadata (summary only — the admin page fetches the
+	// content on demand for download) plus what the bundle itself carries.
+	const meta = getRunMetadata(params.id);
+	const dataPath = run.data_path as string;
+	const metadata = {
+		upload: meta
+			? { filename: meta.filename, sample_count: meta.sample_count, uploaded_at: meta.uploaded_at }
+			: null,
+		bundle_has_metadata: bundleHasMetadata(dataPath),
+		run_sample_ids: [...(readRunSampleIds(dataPath) ?? [])]
+	};
+
+	return { run, grants, grantableUsers, metadata };
 };
