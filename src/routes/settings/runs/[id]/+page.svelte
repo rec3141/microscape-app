@@ -195,7 +195,7 @@
 			return;
 		}
 		metaPending = null;
-		metaOk = `Saved metadata for ${body.kept} samples${body.discarded ? ` (${body.discarded} rows for other samples discarded)` : ''}.`;
+		metaOk = `Saved: ${body.kept} / ${body.run_samples} samples have metadata${body.discarded ? ` (${body.discarded} rows for other samples discarded)` : ''}.`;
 		await invalidateAll();
 	}
 
@@ -309,7 +309,7 @@
 			<div class="flex flex-wrap items-center justify-between gap-3 text-sm">
 				<div>
 					<span class="text-slate-200">{data.metadata.upload.filename}</span>
-					<span class="text-slate-500"> · {data.metadata.upload.sample_count} samples · uploaded {data.metadata.upload.uploaded_at.split(' ')[0]}</span>
+					<span class="text-slate-500"> · {data.metadata.upload.sample_count} / {data.metadata.run_sample_ids.length} samples have metadata · uploaded {data.metadata.upload.uploaded_at.split(' ')[0]}</span>
 				</div>
 				<div class="flex items-center gap-3">
 					<button type="button" onclick={downloadMetadata} class="text-ocean-400 hover:text-ocean-300 text-xs">Download TSV</button>
@@ -339,6 +339,9 @@
 		{#if metaPending}
 			<div class="p-3 rounded border border-slate-700 bg-slate-800/40 space-y-2 text-sm">
 				<p class="text-slate-200">
+					<span class="font-medium">{metaPending.matched.length} / {data.metadata.run_sample_ids.length}</span> run samples will have metadata.
+				</p>
+				<p class="text-slate-400">
 					<span class="font-medium">{metaPending.filename}</span>: {metaPending.matched.length} of {metaPending.total} rows match this run's samples
 					{#if metaPending.total > metaPending.matched.length}
 						<span class="text-slate-400">— the other {metaPending.total - metaPending.matched.length} will be discarded.</span>
