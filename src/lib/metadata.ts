@@ -4,7 +4,9 @@
  * A port of the nanopore_live viz's in-browser metadata import
  * (danaseq nanopore_live/viz/src/stores/data.js) so a file uploaded here
  * produces exactly the `data/metadata.json` shape the viz would build from
- * the same file: `{ "FLOWCELL:barcodeNN": { column: value, ... } }`.
+ * the same file: `{ "FLOWCELL:barcodeNN": { column: value, ... } }`. Runs
+ * whose samples are named otherwise (danaseq illumina_rna: V350357237_L01_A01)
+ * match rows naming those ids directly, keyed by the id.
  * Keep the two in sync when either side's rules change.
  */
 
@@ -166,17 +168,68 @@ function detectDelimiter(text: string): string {
 	return tabs > 0 ? '\t' : ',';
 }
 
-/** Turn [header, ...dataRows] into the canonical metadata object. Accepts
- *  flowcell + barcode columns, or one combined sample_id / samp_name /
- *  flowcell_barcode / id column. */
-function processRows(rows: string[][]): ParseResult {
+/** Sample names as a sheet may write them: file names, R1/R2 suffixes, case. */
+function looseId(s: string): string {
+	return s.trim().toLowerCase().replace(/\.(fastq|fq)(\.gz)?$/, '').replace(/[_.-](r?[12])$/, '');
+}
+
+const ID_COLUMN_NAMES = new Set(['sample', 'sample_id', 'sample_name', 'samp_name', 'sampleid', 'name', 'id', 'library', 'library_id', 'flowcell_barcode']);
+
+/** Rows naming the run's own sample ids directly (any pipeline's naming, e.g.
+ *  Illumina/BGI libraries like V350357237_L01_A01). Picks the id-like column
+ *  with the most matches; null when no row matches, so nanopore sheets keep
+ *  the FLOWCELL:barcodeNN rules below. Keeps every other column. */
+function matchKnownIds(rows: string[][], known: Set<string>): Record<string, Record<string, string>> | null {
+	const header = rows[0].map((h) => String(h).trim());
+	const byLoose = new Map([...known].map((id) => [looseId(id), id]));
+	const resolve = (v: string | undefined) => {
+		const s = String(v ?? '').trim();
+		return !s ? null : known.has(s) ? s : byLoose.get(looseId(s)) ?? null;
+	};
+	let best = -1, bestHits = 0;
+	header.forEach((h, j) => {
+		if (!ID_COLUMN_NAMES.has(h.toLowerCase().replace(/\s+/g, '_')) && j !== 0) return;
+		const hits = rows.slice(1).filter((r) => resolve(r[j])).length;
+		if (hits > bestHits) { best = j; bestHits = hits; }
+	});
+	if (best < 0) return null;
+	const out: Record<string, Record<string, string>> = {};
+	for (const r of rows.slice(1)) {
+		const key = resolve(r[best]);
+		if (!key || key in out) continue;
+		const data: Record<string, string> = {};
+		header.forEach((h, j) => {
+			if (j === best || !h) return;
+			const v = r[j] != null ? String(r[j]) : '';
+			const k = normalizeColumn(h);
+			if (k === 'lat_lon') {
+				const parts = v.trim().split(/[\s,]+/).filter(Boolean);
+				if (parts.length >= 2) { data.lat = parts[0]; data.lon = parts[1]; }
+			} else data[k] = v;
+		});
+		out[key] = data;
+	}
+	return out;
+}
+
+/** Turn [header, ...dataRows] into the canonical metadata object. With the
+ *  run's sample ids, rows naming one of them directly are keyed by it;
+ *  otherwise accepts flowcell + barcode columns, or one combined sample_id /
+ *  samp_name / flowcell_barcode / id column (FLOWCELL:barcodeNN). */
+function processRows(rows: string[][], known?: Set<string>): ParseResult {
 	if (!rows || rows.length < 2) return { ok: false, error: 'File has no data rows' };
+
+	const direct = known?.size ? matchKnownIds(rows, known) : null;
+	if (direct) return typeRows(Object.entries(direct).map(([key, data]) => ({ key, data })));
 
 	const header = rows[0].map(normalizeColumn);
 	const hasFlowcell = header.includes('flowcell');
 	const hasBarcode = header.includes('barcode');
 	const useCombined = !(hasFlowcell && hasBarcode) && header.includes('sample_id');
 	if (!useCombined && !(hasFlowcell && hasBarcode)) {
+		if (known?.size) {
+			return { ok: false, error: `No row names one of this run's samples (e.g. ${[...known][0]}), and there are no flowcell + barcode columns` };
+		}
 		return {
 			ok: false,
 			error: 'Requires either flowcell + barcode columns, or a combined sample_id/samp_name/flowcell_barcode/id column'
@@ -218,6 +271,11 @@ function processRows(rows: string[][]): ParseResult {
 		}
 		rawRows.push({ key, data });
 	}
+	return typeRows(rawRows);
+}
+
+/** Column-wide date detection, then numbers stay numbers and blanks drop. */
+function typeRows(rawRows: { key: string; data: Record<string, string> }[]): ParseResult {
 	if (rawRows.length === 0) return { ok: false, error: 'No rows parsed' };
 
 	const allCols = new Set<string>();
@@ -275,17 +333,19 @@ async function xlsxRows(buf: ArrayBuffer): Promise<string[][] | string> {
 	}));
 }
 
-/** Parse an uploaded .tsv / .csv / .txt / .xlsx file. */
-export async function parseMetadataFile(file: File): Promise<ParseResult> {
+/** Parse an uploaded .tsv / .csv / .txt / .xlsx file. `knownIds` are the
+ *  run's sample ids (data/samples.json), matched directly when rows name them. */
+export async function parseMetadataFile(file: File, knownIds?: Iterable<string>): Promise<ParseResult> {
+	const known = knownIds ? new Set(knownIds) : undefined;
 	const name = file.name.toLowerCase();
 	const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '';
 	if (ext === 'xlsx') {
 		const rows = await xlsxRows(await file.arrayBuffer());
-		return typeof rows === 'string' ? { ok: false, error: rows } : processRows(rows);
+		return typeof rows === 'string' ? { ok: false, error: rows } : processRows(rows, known);
 	}
 	if (ext === 'tsv' || ext === 'csv' || ext === 'txt') {
 		const text = await file.text();
-		return processRows(parseDelimited(text, detectDelimiter(text)));
+		return processRows(parseDelimited(text.replace(/^\uFEFF/, ''), detectDelimiter(text)), known);
 	}
 	return {
 		ok: false,
