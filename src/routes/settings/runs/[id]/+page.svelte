@@ -165,7 +165,7 @@
 		metaOk = '';
 		metaPending = null;
 		if (!file) return;
-		const result = await parseMetadataFile(file);
+		const result = await parseMetadataFile(file, data.metadata.run_sample_ids);
 		if (metaInput) metaInput.value = '';
 		if (!result.ok) {
 			metaError = result.error;
