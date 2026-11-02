@@ -16,6 +16,10 @@ OAuth (with a local bcrypt fallback) + `adapter-node`, deployed as a systemd
 Node service behind nginx, with on-disk run directories under a `RUNS_ROOT`
 tree served via `X-Accel-Redirect` so bulk bytes never flow through Node.
 
+## License
+
+MIT
+
 ## Access model
 
 Every run belongs to one lab and carries one `visibility` value. None of
