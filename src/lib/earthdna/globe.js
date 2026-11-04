@@ -1,19 +1,30 @@
 // @ts-nocheck — WebGL viewer ported from earthdna viewer/globe.html; typed loosely on purpose.
+import { TAXON_SYNONYMS } from './taxa';
 /**
  * EarthDNA globe: every SILVA SSU reference placed on a sphere by k-mer
  * composition (fastsne --sphere), with each visible amplicon run's ASVs
  * (danaSeq illumina_amplicon PLACE_GLOBE → data/globe.json) drawn on top.
  *
- * mountGlobe(root, { base, release, runs }) wires up the markup in
- * src/routes/earthdna/+page.svelte (elements found by id inside root) and
- * returns a destroy function.
+ * mountGlobe(root, { base, release, runs, onTaxa, onPick, onClear }) wires up
+ * the markup in src/routes/earthdna/+page.svelte (elements found by id inside
+ * root) and returns { destroy, view }.
  *
  *   base     URL of the reference files: globe.json, pos.bin (lon, lat
  *            uint16 + group uint8), tax.bin (genus, lineage, species
- *            uint16), layout_sculpt.bin, flags.bin
+ *            uint16), ranks.bin (phylum, class, order, family uint16),
+ *            layout_sculpt.bin, flags.bin
  *   release  reference release the runs' placements must name
  *   runs     [{ id, slug, name, lab_name }] — fetched through
  *            /runs/<id>/files/data/{globe,asvs}.json
+ *   onTaxa   called once the rank codes are in, with { levels, names, find }
+ *   onPick   called with a clicked reference's lineage [{ rank, code, name }]
+ *   onClear  called on Escape
+ *   onAsvs   called once the runs' ASVs are in (the picker's ASV counts change)
+ *
+ * view(level, filter) colours the references by their taxa at rank `level`
+ * among those inside `filter` ({ rank, code } or null; outside it they dim),
+ * keeps only the ASVs whose lineage names the filter taxon, and returns the
+ * taxa ranked by reference count: [{ name, code, count, asvs, color }].
  */
 
 const PALETTE = ['#4e9bf0', '#f2994a', '#58c78a', '#e8595f', '#b28df2', '#f2d35a', '#41c8c8', '#f07ab8', '#9ccf4f', '#e3a37a',
@@ -24,11 +35,22 @@ const REGION_NAMES = { '14964-22534': '16S V4', '13861-27653': '16S V4–V5', '4
 const regionName = (r) => REGION_NAMES[r] || `alignment columns ${r}`;
 const IDLE = 'Drag to turn the globe. Click a point to pick out its genus.';
 
-export function mountGlobe(root, { base, release, runs }) {
+// danaSeq viz's palette (illumina_amplicon/viz/src/stores/data.svelte.js), so a rank list reads the same in both
+function generatePalette(n) {
+	const colors = [];
+	for (let i = 0; i < n; i++) colors.push(hsl((120 + i * 137.508) % 360, (55 + (i % 3) * 15) / 100, (45 + (i % 4) * 8) / 100));
+	return colors;
+}
+const NONE = 65535, OTHER = 127, GREY = [0.42, 0.47, 0.55];
+// names compared between run taxonomies and the reference: case and underscores ignored
+const norm = (s) => s.trim().toLowerCase().replace(/_/g, ' ');
+const css = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
+
+export function mountGlobe(root, { base, release, runs, onTaxa = () => {}, onPick = () => {}, onClear = () => {}, onAsvs = () => {} }) {
 	const $ = (id) => root.querySelector('#' + id);
 	const canvas = $('gl');
 	const gl = canvas.getContext('webgl2', { antialias: true, premultipliedAlpha: false });
-	if (!gl) { $('loading').textContent = 'This page needs WebGL2, which this browser does not provide.'; return () => {}; }
+	if (!gl) { $('loading').textContent = 'This page needs WebGL2, which this browser does not provide.'; return { destroy() {}, view: () => [] }; }
 	let alive = true;
 	const cleanups = [];
 	const on = (target, ev, fn, opts) => { target.addEventListener(ev, fn, opts); cleanups.push(() => target.removeEventListener(ev, fn, opts)); };
@@ -141,6 +163,7 @@ void main() {
 	const R0 = [0, 1, 0, 0, 0, 1, 1, 0, 0];  // world -> view: lon 0 / lat 0 faces the viewer, north up
 	let rot = R0.slice(), zoom = 1, flat = false, spin = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 	let N = 0, meta = null, grp, gen, lin, spc, xyz, cellStart, cellIdx, selBuf, sel, hasSel = false, cols = [];
+	let domIx = null, rankArr = null, rankNames = null, cidx = null, cidxBuf = null, asvFilter = '';
 	const mul = (a, b) => { const r = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) r[3 * i + j] = a[3 * i] * b[j] + a[3 * i + 1] * b[3 + j] + a[3 * i + 2] * b[6 + j]; return r; };
 	const rotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, s, 0, 1, 0, -s, 0, c]; };
 	const rotX = (b) => { const c = Math.cos(b), s = Math.sin(b); return [1, 0, 0, 0, c, -s, 0, s, c]; };
@@ -164,12 +187,53 @@ void main() {
 	{ const loc = gl.getAttribLocation(bgProg, 'aP'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0); }
 	const ptVao = gl.createVertexArray();
 
-	const layouts = {};  // name -> { lon, lat, buf }
-	function makeLayout(lon, lat) {
-		const ll = new Uint16Array(2 * N);
-		for (let i = 0; i < N; i++) { ll[2 * i] = lon[i]; ll[2 * i + 1] = lat[i]; }
+	const layouts = {};  // name -> { lon, lat, buf, W }
+	const toXyz = (lo, la) => { const a = lo / 65535 * 2 * Math.PI - Math.PI, b = la / 65535 * Math.PI - Math.PI / 2; return [Math.cos(b) * Math.cos(a), Math.cos(b) * Math.sin(a), Math.sin(b)]; };
+	const apply = (W, p) => [0, 1, 2].map((r) => W[3 * r] * p[0] + W[3 * r + 1] * p[1] + W[3 * r + 2] * p[2]);
+	const toLL = (p) => [Math.round((Math.atan2(p[1], p[0]) + Math.PI) / (2 * Math.PI) * 65535), Math.round((Math.asin(Math.max(-1, Math.min(1, p[2]))) + Math.PI / 2) / Math.PI * 65535)];
+	// Rotation that lays the domains along the equator: the pole is the axis the three domain centres sit
+	// farthest from (smallest eigenvector of sum c c^T over their unit centres), then the largest domain is
+	// turned to longitude 0.
+	function equatorRotation(lon, lat) {
+		const D = Math.max(...domIx) + 1, sum = new Float64Array(3 * D), n = new Int32Array(D);
+		for (let i = 0; i < N; i++) { const d = domIx[grp[i]], p = toXyz(lon[i], lat[i]); n[d]++; for (let k = 0; k < 3; k++) sum[3 * d + k] += p[k]; }
+		const c = [];
+		for (let d = 0; d < D; d++) { const l = Math.hypot(sum[3 * d], sum[3 * d + 1], sum[3 * d + 2]); if (n[d] && l > 0) c.push([sum[3 * d] / l, sum[3 * d + 1] / l, sum[3 * d + 2] / l]); }
+		const M = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+		for (const v of c) for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) M[3 * r + s] += v[r] * v[s];
+		const pole = smallestEigenvector(M);
+		// Rodrigues: turn the pole onto +z
+		const ax = [pole[1], -pole[0], 0], sn = Math.hypot(ax[0], ax[1]), cs = pole[2];
+		let W = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+		if (sn > 1e-9) {
+			const k = [ax[0] / sn, ax[1] / sn, 0], K = [0, -k[2], k[1], k[2], 0, -k[0], -k[1], k[0], 0], K2 = mul(K, K);
+			W = W.map((v, j) => v + sn * K[j] + (1 - cs) * K2[j]);
+		} else if (cs < 0) W = [1, 0, 0, 0, -1, 0, 0, 0, -1];
+		const big = n.indexOf(Math.max(...n)), b = apply(W, [sum[3 * big], sum[3 * big + 1], sum[3 * big + 2]]), phi = Math.atan2(b[1], b[0]);
+		const Rz = [Math.cos(-phi), -Math.sin(-phi), 0, Math.sin(-phi), Math.cos(-phi), 0, 0, 0, 1];
+		return mul(Rz, W);
+	}
+	// Jacobi eigen-decomposition of a symmetric 3x3; returns the unit eigenvector of the smallest eigenvalue
+	function smallestEigenvector(A) {
+		const a = A.slice(), V = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+		for (let sweep = 0; sweep < 30; sweep++) {
+			for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
+				const apq = a[3 * p + q]; if (Math.abs(apq) < 1e-15) continue;
+				const th = 0.5 * Math.atan2(2 * apq, a[3 * q + q] - a[3 * p + p]), c = Math.cos(th), s = Math.sin(th);
+				const J = [1, 0, 0, 0, 1, 0, 0, 0, 1]; J[3 * p + p] = c; J[3 * q + q] = c; J[3 * p + q] = s; J[3 * q + p] = -s;
+				const Jt = [J[0], J[3], J[6], J[1], J[4], J[7], J[2], J[5], J[8]];
+				const r = mul(Jt, mul(a, J)); for (let j = 0; j < 9; j++) a[j] = r[j];
+				const v = mul(V, J); for (let j = 0; j < 9; j++) V[j] = v[j];
+			}
+		}
+		const k = [0, 1, 2].reduce((m, i) => (a[4 * i] < a[4 * m] ? i : m), 0);
+		return [V[k], V[3 + k], V[6 + k]];
+	}
+	function makeLayout(lon0, lat0) {
+		const W = equatorRotation(lon0, lat0), lon = new Uint16Array(N), lat = new Uint16Array(N), ll = new Uint16Array(2 * N);
+		for (let i = 0; i < N; i++) { const [a, b] = toLL(apply(W, toXyz(lon0[i], lat0[i]))); lon[i] = a; lat[i] = b; ll[2 * i] = a; ll[2 * i + 1] = b; }
 		const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, ll, gl.STATIC_DRAW);
-		return { lon, lat, buf: b };
+		return { lon, lat, buf: b, W };
 	}
 	function bindLayouts(from, to) {
 		gl.bindVertexArray(ptVao);
@@ -180,18 +244,19 @@ void main() {
 	}
 	function upload(buf) {
 		gl.bindVertexArray(ptVao);
-		const lon = new Uint16Array(buf, 0, N), lat = new Uint16Array(buf, 2 * N, N);
-		layouts.similarity = makeLayout(lon, lat);
+		layouts.similarity = makeLayout(new Uint16Array(buf, 0, N), new Uint16Array(buf, 2 * N, N));
 		bindLayouts(layouts.similarity, layouts.similarity);
 		gl.bindVertexArray(ptVao);
 		let loc;
-		const b2 = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b2); gl.bufferData(gl.ARRAY_BUFFER, grp, gl.STATIC_DRAW);
+		cidx = grp.slice();  // colour slot per reference; view() rewrites it
+		cidxBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, cidxBuf); gl.bufferData(gl.ARRAY_BUFFER, cidx, gl.DYNAMIC_DRAW);
 		loc = gl.getAttribLocation(ptProg, 'aGrp'); gl.enableVertexAttribArray(loc); gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
 		selBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, selBuf); gl.bufferData(gl.ARRAY_BUFFER, sel, gl.DYNAMIC_DRAW);
 		loc = gl.getAttribLocation(ptProg, 'aSel'); gl.enableVertexAttribArray(loc); gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
 		flagBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, flagBuf); gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(N), gl.STATIC_DRAW);
 		loc = gl.getAttribLocation(ptProg, 'aFlag'); gl.enableVertexAttribArray(loc); gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
-		buildIndex(lon, lat);
+		const S = layouts.similarity;
+		S.xyz = new Float32Array(3 * N); [S.start, S.idx] = cellIndex(S.lon, S.lat, N, S.xyz);
 	}
 	// unit vectors + 1-degree lon/lat cells for hover lookup
 	function cellIndex(lon, lat, n, out) {
@@ -215,7 +280,11 @@ void main() {
 	// nearest point within 8 px of the cursor, from a cell index
 	function nearestIn(p, pts, start, idx, skip) {
 		const pxPerRad = (scale()[0] * canvas.clientWidth) / 2 * (flat ? 0.9 : 1);
-		const thr = 8 / pxPerRad, cosT = Math.cos(thr);
+		return nearestWithin(p, pts, start, idx, 8 / pxPerRad, skip);
+	}
+	// nearest point within thr radians of unit vector p
+	function nearestWithin(p, pts, start, idx, thr, skip) {
+		const cosT = Math.cos(thr);
 		const lat = Math.asin(Math.max(-1, Math.min(1, p[2]))) * 180 / Math.PI, lon = Math.atan2(p[1], p[0]) * 180 / Math.PI;
 		const dl = thr * 180 / Math.PI, cj = Math.floor(lon + 180);
 		const r0 = Math.max(0, Math.floor(lat + 90 - dl)), r1 = Math.min(179, Math.floor(lat + 90 + dl));
@@ -235,13 +304,13 @@ void main() {
 	}
 
 	// ---------- place names: domain, phylum, family, genus; each shown once its territory is big enough on screen
-	let labelSets = [], labelPool = [];
+	let labelSets = [], labelPool = [], labelsOn = true;
 	const SKIP = /^(|\?|other|incertae sedis|uncultured.*|unidentified.*|unclassified.*|metagenome.*|.*environmental sample.*)$/i;
 	function buildLabels() {
 		const domName = meta.groups.map((g) => g.split(' · ')[0]);
-		const doms = [...new Set(domName)], domIx = domName.map((d) => doms.indexOf(d));
+		const doms = [...new Set(domName)], dIx = domName.map((d) => doms.indexOf(d));
 		const levels = [
-			{ cls: 'L0', names: doms, code: (i) => domIx[grp[i]] ?? -1, min: 1000 },
+			{ cls: 'L0', names: doms, code: (i) => dIx[grp[i]] ?? -1, min: 1000 },
 			{ cls: 'L1', names: meta.groups.map((g) => g.split(' · ')[1] || g), code: (i) => grp[i], min: 200 },
 			{ cls: 'L2', names: meta.lineages, code: (i) => lin[i], min: 40 },
 			{ cls: 'L3', names: meta.genera, code: (i) => gen[i], min: 25 },
@@ -273,7 +342,7 @@ void main() {
 	}
 	function placeLabels() {
 		const box = $('labels');
-		if (!labelSets.length || morph) { for (const el of labelPool) el.hidden = true; return; }
+		if (!labelSets.length || morph || !labelsOn) { for (const el of labelPool) el.hidden = true; return; }
 		const w = canvas.clientWidth, h = canvas.clientHeight, sc = scale();
 		const pxR = sc[0] * w / 2 * (flat ? 0.9 : 1), minDim = Math.min(w, h);
 		const taken = [];
@@ -311,7 +380,7 @@ void main() {
 	}
 
 	// ---------- draw
-	let dirty = true, morph = null, current = 'similarity', flagMode = false, flags = null, majg = null, flagBuf = null;
+	let dirty = true, morph = null, current = 'sculpt', flagMode = false, flags = null, majg = null, flagBuf = null;
 	async function fetchBin(name) {
 		const r = await fetch(`${base}/${name}`);
 		if (!r.ok) throw new Error(`${r.status} ${name}`);
@@ -334,7 +403,7 @@ void main() {
 		} else $('status').textContent = IDLE;
 		dirty = true;
 	}
-	const SCULPT = 'Sculpted: each sequence is gently pulled toward its domain, phylum, class and order. Amplicon runs show on the similarity layout only.';
+	const SCULPT = 'Sculpted: each sequence is gently pulled toward its domain, phylum, class and order. ASVs sit on their nearest reference.';
 	async function showLayout(name) {
 		if (name === current || morph) return;
 		if (!layouts[name]) {
@@ -343,6 +412,7 @@ void main() {
 			try { b = await fetchBin(`layout_${name}.bin`); } catch { $('status').textContent = 'The sculpted layout did not load. Try again.'; return; }
 			if (!alive) return;
 			layouts[name] = makeLayout(new Uint16Array(b.buffer, 0, N), new Uint16Array(b.buffer, 2 * N, N));
+			if (asv) asvLayout(name);
 		}
 		$('status').textContent = name === 'sculpt' ? SCULPT : 'Placed by sequence similarity alone.';
 		bindLayouts(layouts[current], layouts[name]);
@@ -394,7 +464,7 @@ void main() {
 			const u = Math.min(1, (t - morph.t0) / morph.dur);
 			morph.t = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
 			dirty = true;
-			if (u >= 1) { const L = morph.to; morph = null; bindLayouts(L, L); buildIndex(L.lon, L.lat); }
+			if (u >= 1) { const L = morph.to; morph = null; bindLayouts(L, L); buildIndex(L.lon, L.lat); if (asv) bindAsvLayout(current); }
 		}
 		if (dirty) { draw(); placeLabels(); dirty = false; }
 		raf = requestAnimationFrame(frame);
@@ -427,7 +497,7 @@ void main() {
 		pointers.delete(e.pointerId);
 		if (pointers.size === 0) {
 			dragging = false; canvas.classList.remove('dragging');
-			if (moved < 4 && e.type === 'pointerup') pickGenus(e.clientX, e.clientY);
+			if (moved < 4 && e.type === "pointerup") pickPoint(e.clientX, e.clientY);
 		} else lastP = [...pointers.values()][0];
 	}
 	on(canvas, 'pointerup', endPointer); on(canvas, 'pointercancel', endPointer);
@@ -503,53 +573,77 @@ void main() {
 		});
 	}
 
-	// ---------- selection
-	function applySel(test, label) {
-		let n = 0;
-		for (let i = 0; i < N; i++) { const v = test(i) ? 1 : 0; sel[i] = v; n += v; }
-		hasSel = n > 0 && n < N;
+	// ---------- taxa: rank codes per reference, the picker's view
+	// rank 0 domain (from the group), 1-4 phylum..family (ranks.bin), 5 genus, 6 species (tax.bin); NONE = unranked
+	const rankCode = (r, i) => r === 0 ? domIx[grp[i]] : r <= 4 ? rankArr[r - 1][i] : r === 5 ? gen[i] : spc[i];
+	function lineageOf(i) {
+		const out = [];
+		for (let r = 0; r < rankNames.length; r++) { const c = rankCode(r, i); if (c !== NONE && rankNames[r][c] != null) out.push({ rank: r, code: c, name: rankNames[r][c] }); }
+		return out;
+	}
+	// first rank a name is used at (exact, case-insensitive) and the lineage above it, from one member
+	function find(name) {
+		const lower = (name || '').toLowerCase();
+		for (let r = 0; r < rankNames.length; r++) {
+			const c = rankNames[r].findIndex((n) => n.toLowerCase() === lower);
+			if (c < 0) continue;
+			for (let i = 0; i < N; i++) if (rankCode(r, i) === c) return lineageOf(i).filter((x) => x.rank <= r);
+			return [{ rank: r, code: c, name: rankNames[r][c] }];
+		}
+		return null;
+	}
+	function view(level, filter) {
+		if (!rankArr) return [];
+		const counts = new Map();
+		let members = 0;
+		for (let i = 0; i < N; i++) {
+			const inside = !filter || rankCode(filter.rank, i) === filter.code;
+			sel[i] = inside ? 1 : 0;
+			if (!inside) continue;
+			members++;
+			const c = rankCode(level, i);
+			counts.set(c, (counts.get(c) || 0) + 1);
+		}
+		hasSel = !!filter && members < N;
+		const ranked = [...counts].sort((a, b) => (a[0] === NONE) - (b[0] === NONE) || b[1] - a[1])
+			.map(([code, count]) => ({ code, count, name: code === NONE ? 'unclassified' : rankNames[level][code] }));
+		const palette = generatePalette(ranked.length), slot = new Map();
+		cols = new Float32Array(128 * 3);
+		ranked.forEach((t, k) => {
+			const c = t.code === NONE || k >= OTHER ? GREY : palette[k];
+			t.color = css(c);
+			if (t.code !== NONE && k < OTHER) { slot.set(t.code, k); cols.set(c, 3 * k); }
+		});
+		cols.set(GREY, 3 * OTHER);
+		for (let i = 0; i < N; i++) { const k = slot.get(rankCode(level, i)); cidx[i] = k === undefined ? OTHER : k; }
+		gl.bindBuffer(gl.ARRAY_BUFFER, cidxBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, cidx);
 		gl.bindBuffer(gl.ARRAY_BUFFER, selBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, sel);
-		$('status').innerHTML = hasSel ? `<b></b> · ${n.toLocaleString()} sequences` : (n === 0 && label ? 'No sequences match that name.' : IDLE);
-		if (hasSel) $('status').firstChild.textContent = label;
+		// ASVs: kept when their lineage names the filter taxon; counted against each listed taxon by name
+		asvFilter = filter ? norm(rankNames[filter.rank][filter.code]) : '';
+		if (asv) {
+			const byName = new Map(ranked.map((t) => [norm(t.name), t]));
+			for (const t of ranked) t.asvs = 0;
+			for (let j = 0; j < asv.n; j++) {
+				const comps = asv.comps[asv.tax[j]];
+				if (asvFilter && !comps.has(asvFilter)) continue;
+				for (const c of comps) { const t = byName.get(c); if (t) t.asvs++; }
+			}
+			syncAsvOn();
+		}
+		$('status').textContent = filter ? `${rankNames[filter.rank][filter.code]} · ${members.toLocaleString()} sequences` : IDLE;
 		dirty = true;
-		return n;
+		return ranked;
 	}
-	function clearSel() {
-		if (!sel) return;
-		sel.fill(0); hasSel = false; gl.bindBuffer(gl.ARRAY_BUFFER, selBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, sel);
-		activeGroups.clear(); syncKey(); $('status').textContent = IDLE; dirty = true;
+	function pickPoint(cx, cy) {
+		const i = nearest(cx, cy);
+		if (i >= 0 && rankArr) onPick(lineageOf(i).filter((x) => x.rank <= 5));
 	}
-	function pickGenus(cx, cy) {
-		const i = nearest(cx, cy); if (i < 0) return;
-		const g = gen[i]; activeGroups.clear(); syncKey();
-		if (g === 65535) { const l = lin[i]; applySel((j) => gen[j] === 65535 && lin[j] === l, `Unclassified genera in ${meta.lineages[l] || 'this group'}`); return; }
-		applySel((j) => gen[j] === g, meta.genera[g]);
-	}
-	const activeGroups = new Set();
-	function syncKey() { for (const b of $('groups').querySelectorAll('button')) b.setAttribute('aria-pressed', activeGroups.has(+b.dataset.g) ? 'true' : 'false'); }
-	function selectGroups() {
-		if (!activeGroups.size) { clearSel(); return; }
-		const lab = [...activeGroups].map((g) => meta.groups[g].split(' · ')[1]).join(', ');
-		applySel((j) => activeGroups.has(grp[j]), lab.length > 60 ? `${activeGroups.size} groups` : lab);
-	}
-	on($('find'), 'submit', (e) => {
-		e.preventDefault();
-		if (!meta) return;
-		const t = $('q').value.trim().toLowerCase(); if (!t) { clearSel(); return; }
-		activeGroups.clear(); syncKey();
-		const hit = (arr) => { const s = new Set(); arr.forEach((n, k) => { if (n.toLowerCase() === t) s.add(k); }); if (!s.size) arr.forEach((n, k) => { if (n.toLowerCase().includes(t)) s.add(k); }); return s; };
-		let s = hit(meta.genera); if (s.size) return applySel((j) => s.has(gen[j]), s.size === 1 ? meta.genera[[...s][0]] : `${s.size} genera matching “${t}”`);
-		s = hit(meta.species); if (s.size) return applySel((j) => s.has(spc[j]), s.size === 1 ? meta.species[[...s][0]] : `${s.size} species matching “${t}”`);
-		s = hit(meta.lineages); if (s.size) return applySel((j) => s.has(lin[j]), s.size === 1 ? meta.lineages[[...s][0]] : `${s.size} families, orders or classes matching “${t}”`);
-		s = hit(meta.groups.map((g) => g.split(' · ')[1] || g)); if (s.size) return applySel((j) => s.has(grp[j]), `${[...s].map((k) => meta.groups[k].split(' · ')[1]).join(', ')}`);
-		applySel(() => false, t);
-	});
-	on($('clear'), 'click', () => { $('q').value = ''; clearSel(); });
-	on(window, 'keydown', (e) => { if (e.key === 'Escape') { $('q').value = ''; clearSel(); } });
+	on(window, 'keydown', (e) => { if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement)) onClear(); });
 	const press = (a, b, v) => { $(a).setAttribute('aria-pressed', v ? 'true' : 'false'); $(b).setAttribute('aria-pressed', v ? 'false' : 'true'); };
 	on($('vGlobe'), 'click', () => { flat = false; press('vGlobe', 'vFlat', true); dirty = true; });
 	on($('vFlat'), 'click', () => { flat = true; press('vGlobe', 'vFlat', false); dirty = true; });
 	on($('spin'), 'click', () => { spin = !spin; $('spin').setAttribute('aria-pressed', spin ? 'true' : 'false'); $('spin').textContent = spin ? 'Pause spin' : 'Spin'; });
+	on($('labelsBtn'), 'click', () => { labelsOn = !labelsOn; $('labelsBtn').setAttribute('aria-pressed', labelsOn ? 'true' : 'false'); dirty = true; });
 	on($('lSim'), 'click', () => showLayout('similarity'));
 	on($('lSculpt'), 'click', () => showLayout('sculpt'));
 	on($('cTax'), 'click', () => setColour(false));
@@ -560,7 +654,7 @@ void main() {
 
 	// ---------- amplicon runs: each run's ASVs as placed by PLACE_GLOBE
 	let asv = null, asvOn = false;
-	const asvShown = () => asv && asvOn && current === 'similarity' && !morph;
+	const asvShown = () => asv && asvOn && !morph;
 	async function fetchJson(url) {
 		const r = await fetch(url);
 		if (!r.ok) throw new Error(`${r.status}`);
@@ -613,29 +707,46 @@ void main() {
 		});
 		const runCols = runs.map((_, k) => k < PALETTE.length ? hex(PALETTE[k]) : hsl((k * 137.5) % 360, 0.55, 0.62));
 		asv = { n, lon, lat, reads, ns, tax, run, reg, ids, taxa, regions, runOn: new Uint8Array(runs.length).fill(1), onArr: new Uint8Array(n).fill(1) };
-		const ll = new Uint16Array(2 * n), sz = new Uint8Array(n), col = new Uint8Array(3 * n);
+		// each distinct lineage as a set of its lowercased names, for the picker's filter and counts
+		// (plus the current name of any retired one, since run taxonomies can predate the reference's names)
+		asv.comps = taxa.map((s) => {
+			const out = new Set();
+			for (const x of s.split(';')) {
+				const n = norm(x); if (!n) continue;
+				out.add(n); for (const c of TAXON_SYNONYMS[n] || []) out.add(norm(c));
+			}
+			return out;
+		});
+		// placements are on the similarity map; turn them with it onto the equator-aligned frame
+		const Ws = layouts.similarity.W;
+		for (let j = 0; j < n; j++) { const [a, b] = toLL(apply(Ws, toXyz(lon[j], lat[j]))); lon[j] = a; lat[j] = b; }
+		const sz = new Uint8Array(n), col = new Uint8Array(3 * n);
 		for (let j = 0; j < n; j++) {
-			ll[2 * j] = lon[j]; ll[2 * j + 1] = lat[j];
 			sz[j] = Math.min(255, Math.round(Math.log10(1 + reads[j]) / 7 * 255));
 			const c = runCols[run[j]]; col[3 * j] = c[0] * 255; col[3 * j + 1] = c[1] * 255; col[3 * j + 2] = c[2] * 255;
 		}
 		asv.vao = gl.createVertexArray(); gl.bindVertexArray(asv.vao);
-		for (const [name, data, k, norm] of [['aLL', ll, 2, true], ['aCol', col, 3, true], ['aOn', asv.onArr, 1, false], ['aSz', sz, 1, false]]) {
+		for (const [name, data, k, normed] of [['aCol', col, 3, true], ['aOn', asv.onArr, 1, false], ['aSz', sz, 1, false]]) {
 			const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, name === 'aOn' ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW);
 			if (name === 'aOn') asv.onBuf = buf;
 			const loc = gl.getAttribLocation(asvProg, name); gl.enableVertexAttribArray(loc);
-			if (norm) gl.vertexAttribPointer(loc, k, name === 'aLL' ? gl.UNSIGNED_SHORT : gl.UNSIGNED_BYTE, true, 0, 0);
+			if (normed) gl.vertexAttribPointer(loc, k, gl.UNSIGNED_BYTE, true, 0, 0);
 			else gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
 		}
-		asv.xyz = new Float32Array(3 * n);
-		[asv.cellStart, asv.cellIdx] = cellIndex(lon, lat, n, asv.xyz);
-		const syncOn = () => {
-			for (let j = 0; j < n; j++) asv.onArr[j] = asv.runOn[run[j]];
-			gl.bindBuffer(gl.ARRAY_BUFFER, asv.onBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, asv.onArr);
-			for (const [j, el] of [...ul.children].entries()) el.firstChild.setAttribute('aria-pressed', asv.runOn[+el.dataset.k] ? 'true' : 'false');
-			dirty = true;
-		};
-		const ul = $('runs');
+		// each ASV's nearest reference on the similarity map, so it can follow the references into other layouts
+		const S = layouts.similarity;
+		asv.ref = new Int32Array(n);
+		for (let j = 0; j < n; j++) {
+			const q = toXyz(lon[j], lat[j]);
+			let r = -1;
+			for (const deg of [0.5, 2, 8, 30, 180]) { r = nearestWithin(q, S.xyz, S.start, S.idx, deg * Math.PI / 180, () => false); if (r >= 0) break; }
+			asv.ref[j] = Math.max(0, r);
+		}
+		asv.layouts = { similarity: null };
+		asvLayout('similarity');
+		for (const name in layouts) if (name !== 'similarity') asvLayout(name);
+		bindAsvLayout(current);
+		const ul = asv.ul = $('runs');
 		asv.skipped = [];
 		runs.forEach((r, k) => {
 			if (!got[k].globe) { asv.skipped.push(`${r.name}: ${got[k].skipped}`); return; }
@@ -651,11 +762,37 @@ void main() {
 			on(b, 'click', (e) => {
 				if (e.shiftKey || e.metaKey || e.ctrlKey) asv.runOn[k] ^= 1;
 				else { const only = asv.runOn[k] && asv.runOn.reduce((x, y) => x + y, 0) === 1; asv.runOn.fill(only ? 1 : 0); asv.runOn[k] = 1; }
-				syncOn();
+				syncAsvOn();
 			});
 			li.appendChild(b); ul.appendChild(li);
 		});
 		asv.shown = ul.children.length;
+	}
+	// an ASV's position in a layout: its own placement on the similarity map, its nearest reference's elsewhere
+	function asvLayout(name) {
+		const n = asv.n, L = layouts[name], lon = new Uint16Array(n), lat = new Uint16Array(n), ll = new Uint16Array(2 * n);
+		for (let j = 0; j < n; j++) {
+			lon[j] = name === 'similarity' ? asv.lon[j] : L.lon[asv.ref[j]]; lat[j] = name === 'similarity' ? asv.lat[j] : L.lat[asv.ref[j]];
+			ll[2 * j] = lon[j]; ll[2 * j + 1] = lat[j];
+		}
+		const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, ll, gl.STATIC_DRAW);
+		const xyzA = new Float32Array(3 * n), [start, idx] = cellIndex(lon, lat, n, xyzA);
+		asv.layouts[name] = { buf, xyz: xyzA, start, idx };
+	}
+	function bindAsvLayout(name) {
+		const A = asv.layouts[name]; if (!A) return;
+		gl.bindVertexArray(asv.vao);
+		const loc = gl.getAttribLocation(asvProg, 'aLL');
+		gl.bindBuffer(gl.ARRAY_BUFFER, A.buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.UNSIGNED_SHORT, true, 0, 0);
+		asv.xyz = A.xyz; asv.cellStart = A.start; asv.cellIdx = A.idx;
+		dirty = true;
+	}
+	// an ASV shows when its run is on and its lineage names the picker's taxon
+	function syncAsvOn() {
+		for (let j = 0; j < asv.n; j++) asv.onArr[j] = asv.runOn[asv.run[j]] && (!asvFilter || asv.comps[asv.tax[j]].has(asvFilter)) ? 1 : 0;
+		gl.bindBuffer(gl.ARRAY_BUFFER, asv.onBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, asv.onArr);
+		for (const el of asv.ul.children) el.firstChild.setAttribute('aria-pressed', asv.runOn[+el.dataset.k] ? 'true' : 'false');
+		dirty = true;
 	}
 	async function toggleAsv() {
 		if (!runs.length) return;
@@ -664,14 +801,13 @@ void main() {
 			await loadAsvs();
 			if (!alive) return;
 			$('asvBtn').disabled = false;
+			syncAsvOn(); onAsvs();
 		}
 		asvOn = !asvOn;
 		$('asvBtn').setAttribute('aria-pressed', asvOn ? 'true' : 'false');
 		$('asvBtn').textContent = asvOn ? 'Hide amplicon runs' : 'Show amplicon runs';
-		$('groups').hidden = asvOn; $('runs').hidden = !asvOn;
-		$('keytitle').textContent = asvOn ? 'Amplicon runs (click one, shift-click to add)' : 'Phyla and eukaryote supergroups';
-		$('ngroups').textContent = asvOn ? asv.shown : meta.groups.length;
-		if (asvOn && current !== 'similarity') showLayout('similarity');
+		$('runcard').hidden = !asvOn;
+		$('nruns').textContent = asv.shown;
 		const skip = asv.skipped.length ? ` · ${asv.skipped.length} not shown (${asv.skipped.join('; ')})` : '';
 		$('status').textContent = asvOn ? `${asv.n.toLocaleString()} ASVs from ${asv.shown} amplicon runs, placed by sequence on the reference globe${skip}` : IDLE;
 		dirty = true;
@@ -695,47 +831,51 @@ void main() {
 		const ab = await new Blob(parts).arrayBuffer();
 		if (ab.byteLength !== 5 * N) throw new Error('data file has the wrong size');
 		grp = new Uint8Array(ab, 4 * N, N);
+		const sculptReq = fetchBin('layout_sculpt.bin').catch(() => null);
 		const tx = await fetchBin('tax.bin');
 		if (tx.length !== 6 * N) throw new Error('taxonomy file has the wrong size');
 		if (!alive) return;
 		gen = new Uint16Array(tx.buffer, 0, N); lin = new Uint16Array(tx.buffer, 2 * N, N); spc = new Uint16Array(tx.buffer, 4 * N, N);
 		sel = new Uint8Array(N);
 		const ng = meta.groups.length;
+		const doms = [...new Set(meta.groups.map((g) => g.split(' · ')[0]))];
+		domIx = meta.groups.map((g) => doms.indexOf(g.split(' · ')[0]));
 		cols = new Float32Array(128 * 3);
 		for (let g = 0; g < 128; g++) {
 			const c = g < PALETTE.length ? hex(PALETTE[g]) : g < ng ? hsl((g * 137.5) % 360, 0.32, 0.56) : [0.5, 0.55, 0.62];
 			cols.set(c, 3 * g);
 		}
 		upload(ab);
-		const ul = $('groups');
-		meta.groups.forEach((name, g) => {
-			const [dom, ph] = name.split(' · ');
-			const li = document.createElement('li'), b = document.createElement('button');
-			b.dataset.g = g; b.setAttribute('aria-pressed', 'false');
-			const c = cols.slice(3 * g, 3 * g + 3);
-			b.innerHTML = '<span class="sw"></span><span><span class="ph"></span> <span class="dom"></span></span><span class="n"></span>';
-			b.querySelector('.sw').style.background = `rgb(${c[0] * 255},${c[1] * 255},${c[2] * 255})`;
-			b.querySelector('.ph').textContent = ph || name; b.querySelector('.dom').textContent = dom;
-			b.querySelector('.n').textContent = meta.groupCounts[g].toLocaleString();
-			on(b, 'click', (e) => {
-				if (!e.shiftKey && !e.metaKey && !e.ctrlKey) { const had = activeGroups.has(g) && activeGroups.size === 1; activeGroups.clear(); if (!had) activeGroups.add(g); }
-				else activeGroups.has(g) ? activeGroups.delete(g) : activeGroups.add(g);
-				$('q').value = ''; syncKey(); selectGroups();
-			});
-			li.appendChild(b); ul.appendChild(li);
-		});
-		$('ngroups').textContent = ng;
+		// the sculpted layout opens the page; the similarity map stands in if it did not load
+		const sb = await sculptReq;
+		if (!alive) return;
+		if (sb && sb.length === 4 * N) {
+			layouts.sculpt = makeLayout(new Uint16Array(sb.buffer, 0, N), new Uint16Array(sb.buffer, 2 * N, N));
+			bindLayouts(layouts.sculpt, layouts.sculpt);
+		} else current = 'similarity';
+		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === current ? 'true' : 'false');
+		buildIndex(layouts[current].lon, layouts[current].lat);
 		$('nseq').textContent = N.toLocaleString();
 		$('loading').hidden = true; dirty = true;
-		if (runs.length) await toggleAsv();
+		const asvs = runs.length ? toggleAsv() : null;
+		// rank codes for the picker: domain (from the groups), phylum..family, genus, species
+		const rk = await fetchBin('ranks.bin');
+		if (!alive) return;
+		if (rk.length !== 8 * N) throw new Error('rank file has the wrong size');
+		rankArr = [0, 1, 2, 3].map((k) => new Uint16Array(rk.buffer, 2 * k * N, N));
+		const R = meta.ranks;
+		rankNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
+		onTaxa({ levels: R.levels, names: rankNames, find });
+		await asvs;
 	}
-	resize(); centreOn(-0.6, 0.15); raf = requestAnimationFrame(frame);
+	resize(); centreOn(0, 0.12); raf = requestAnimationFrame(frame);
 	load().catch((e) => { if (alive) $('loading').textContent = `The sequence data did not load (${e.message}). Reload the page to try again.`; });
 
-	return () => {
+	const destroy = () => {
 		alive = false;
 		cancelAnimationFrame(raf); if (hoverReq) cancelAnimationFrame(hoverReq);
 		for (const f of cleanups) f();
 		gl.getExtension('WEBGL_lose_context')?.loseContext();
 	};
+	return { destroy, view };
 }

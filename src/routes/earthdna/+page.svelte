@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { mountGlobe } from '$lib/earthdna/globe.js';
+	import TaxonPicker from '$lib/earthdna/TaxonPicker.svelte';
+	import type { RankedTaxon, Taxa, Taxon } from '$lib/earthdna/taxa';
 	import './earthdna.css';
 
 	interface GlobeRun {
@@ -16,17 +18,37 @@
 
 	let { data }: Props = $props();
 	let root: HTMLElement;
+	let taxa = $state<Taxa | null>(null);
+	let asvVersion = $state(0);
+	let picker = $state<ReturnType<typeof TaxonPicker> | null>(null);
+	let view = $state<(level: number, filter: Taxon | null) => RankedTaxon[]>(() => []);
 
 	// The reference globe the PLACE_GLOBE placements are made against
 	// (EarthDNA SILVA 144, doi:10.5281/zenodo.23936866).
-	onMount(() => mountGlobe(root, { base: '/earthdna/silva144', release: '144', runs: data.runs }));
+	onMount(() => {
+		const globe = mountGlobe(root, {
+			base: '/earthdna/silva144',
+			release: '144',
+			runs: data.runs,
+			onTaxa: (t: Taxa) => (taxa = t),
+			onPick: (lineage: Taxon[]) => picker?.show(lineage),
+			onClear: () => picker?.show(null),
+			onAsvs: () => asvVersion++
+		});
+		view = globe.view;
+		return globe.destroy;
+	});
 </script>
 
 <svelte:head><title>EarthDNA · microscape.app</title></svelte:head>
 
 <div class="earthdna" bind:this={root}>
-	<canvas id="gl" aria-label="Globe of SSU rRNA sequences"></canvas>
-	<div id="loading">Loading 905,628 sequences…</div>
+	<div class="stage">
+		<canvas id="gl" aria-label="Globe of SSU rRNA sequences"></canvas>
+		<div id="loading">Loading 905,628 sequences…</div>
+		<div id="labels" aria-hidden="true"></div>
+		<div id="hint">Drag: rotate · Scroll or pinch: zoom<br />Double-click: centre · Esc: clear</div>
+	</div>
 
 	<section id="head" class="card">
 		<div>
@@ -36,7 +58,7 @@
 				spherical t-SNE (<a href="https://github.com/rec3141/fastsne" target="_blank" rel="noopener noreferrer">fastsne</a>).
 				Nearby sequences are similar.
 				{#if data.runs.length}
-					Coloured dots are ASVs from the {data.runs.length} amplicon {data.runs.length === 1 ? 'run' : 'runs'} you can see.
+					Dots with dark rims are ASVs from the {data.runs.length} amplicon {data.runs.length === 1 ? 'run' : 'runs'} you can see.
 				{:else if data.signedIn}
 					None of the runs you can see has globe placements yet.
 				{:else}
@@ -50,26 +72,23 @@
 				<button id="vFlat" aria-pressed="false">Equal-area</button>
 			</div>
 			<button class="btn" id="spin" aria-pressed="true">Pause spin</button>
+			<button class="btn" id="labelsBtn" aria-pressed="true">Labels</button>
 		</div>
 		<div class="row" hidden={!data.runs.length}>
 			<button class="btn" id="asvBtn" aria-pressed="false">Show amplicon runs</button>
 		</div>
 		<div class="row">
 			<div class="seg" role="group" aria-label="Layout">
-				<button id="lSim" aria-pressed="true">Similarity</button>
-				<button id="lSculpt" aria-pressed="false">Sculpted by taxonomy</button>
+				<button id="lSculpt" aria-pressed="true">Sculpted by taxonomy</button>
+				<button id="lSim" aria-pressed="false">Similarity</button>
 			</div>
 		</div>
 		<div class="row">
 			<div class="seg" role="group" aria-label="Colour">
-				<button id="cTax" aria-pressed="true">Colour by phylum</button>
+				<button id="cTax" aria-pressed="true">Colour by taxon</button>
 				<button id="cFlag" aria-pressed="false">Label conflicts</button>
 			</div>
 		</div>
-		<form class="row" id="find">
-			<input id="q" type="search" placeholder="Find a species, genus, family or phylum" autocomplete="off" aria-label="Find taxon" />
-			<button class="btn" id="clear" type="button">Clear</button>
-		</form>
 		<div id="status">Drag to turn the globe. Click a point to pick out its genus.</div>
 		<div class="sliders">
 			<label class="slider" for="size">Point size <input id="size" type="range" min="0.5" max="6" step="0.1" value="1.6" /></label>
@@ -78,12 +97,18 @@
 	</section>
 
 	<details id="key" class="card" open>
-		<summary><span id="keytitle">Phyla and eukaryote supergroups</span><span id="ngroups"></span></summary>
-		<ul id="groups"></ul>
-		<ul id="runs" hidden></ul>
+		<summary><span>Taxa</span></summary>
+		{#if taxa}
+			<TaxonPicker bind:this={picker} {taxa} {view} asvsShown={asvVersion > 0} version={asvVersion} />
+		{:else}
+			<p class="keywait">Loading the taxonomy…</p>
+		{/if}
 	</details>
 
-	<div id="labels" aria-hidden="true"></div>
+	<details id="runcard" class="card" open hidden>
+		<summary><span>Amplicon runs · click one, shift-click to add</span><span id="nruns"></span></summary>
+		<ul id="runs"></ul>
+	</details>
+
 	<div id="tip" hidden></div>
-	<div id="hint">Drag: rotate · Scroll or pinch: zoom<br />Double-click: centre · Esc: clear</div>
 </div>
