@@ -1,0 +1,96 @@
+/* EarthDNA globe (src/lib/earthdna/globe.js). The globe fills a framed panel under the navbar; a title +
+   controls card floats top-left, the key bottom-left, a hover label follows the cursor. Elements the viewer
+   creates at run time (labels, key rows) are unscoped, hence a plain stylesheet under .earthdna. */
+.earthdna {
+	--space: #020617;
+	--panel: rgba(15, 23, 42, 0.86);
+	--line: rgba(148, 163, 184, 0.18);
+	--ink: #e2e8f0;
+	--muted: #94a3b8;
+	--gold: #f0c35a;
+	--f-taxon: Georgia, 'Times New Roman', serif;
+	--f-data: var(--font-mono);
+	position: relative;
+	height: calc(100dvh - 10rem);
+	min-height: 560px;
+	border: 1px solid #1e293b;
+	border-radius: 0.5rem;
+	overflow: hidden;
+	background: var(--space);
+	color: var(--ink);
+}
+.earthdna canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.earthdna canvas#gl.dragging { cursor: grabbing; }
+.earthdna .card {
+	position: absolute; z-index: 2; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+	backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.earthdna #head { top: 12px; left: 12px; width: min(340px, calc(100% - 24px)); padding: 14px 16px; display: grid; gap: 12px; }
+.earthdna h1 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: 0.01em; text-wrap: balance; }
+.earthdna .sub { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
+.earthdna .sub b { color: var(--ink); font-weight: 500; font-family: var(--f-data); font-size: 0.76rem; }
+.earthdna .sub a { color: #38bdf8; }
+.earthdna .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.earthdna .row[hidden] { display: none; }
+.earthdna .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.earthdna .seg button { font: inherit; font-size: 0.8rem; color: var(--muted); background: transparent; border: 0; padding: 5px 11px; cursor: pointer; }
+.earthdna .seg button[aria-pressed='true'] { color: var(--space); background: var(--ink); }
+.earthdna button:focus-visible, .earthdna input:focus-visible, .earthdna summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.earthdna .btn { font: inherit; font-size: 0.8rem; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+.earthdna .btn:disabled { opacity: 0.5; cursor: progress; }
+.earthdna .btn:hover, .earthdna .seg button:hover { color: var(--ink); }
+.earthdna #q {
+	flex: 1; min-width: 0; font: inherit; font-size: 0.85rem; color: var(--ink); background: rgba(255, 255, 255, 0.04);
+	border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px;
+}
+.earthdna #q::placeholder { color: var(--muted); }
+.earthdna #status { font-size: 0.78rem; color: var(--muted); min-height: 1.1em; overflow-wrap: anywhere; }
+.earthdna #status b { color: var(--gold); font-weight: 500; }
+.earthdna .sliders { display: grid; gap: 6px; }
+.earthdna .slider { display: grid; grid-template-columns: 4.6rem 1fr; gap: 8px; align-items: center; font-size: 0.75rem; color: var(--muted); }
+.earthdna .slider input { width: 100%; accent-color: var(--gold); }
+.earthdna #key { bottom: 12px; left: 12px; width: min(340px, calc(100% - 24px)); max-height: min(38%, 380px); display: flex; flex-direction: column; }
+.earthdna #key summary { list-style: none; cursor: pointer; padding: 10px 16px; font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.earthdna #key summary::-webkit-details-marker { display: none; }
+.earthdna #key[open] summary { border-bottom: 1px solid var(--line); }
+.earthdna #groups, .earthdna #runs { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px 8px; margin: 0; list-style: none; display: grid; gap: 1px; }
+.earthdna #groups[hidden], .earthdna #runs[hidden] { display: none; }
+.earthdna #groups button, .earthdna #runs button {
+	width: 100%; display: grid; grid-template-columns: 10px 1fr auto; gap: 9px; align-items: center; text-align: left;
+	font: inherit; font-size: 0.8rem; color: var(--ink); background: transparent; border: 0; border-radius: 5px; padding: 4px 8px; cursor: pointer;
+}
+.earthdna #groups button:hover, .earthdna #runs button:hover { background: rgba(255, 255, 255, 0.05); }
+.earthdna #groups button[aria-pressed='true'], .earthdna #runs button[aria-pressed='true'] { background: rgba(240, 195, 90, 0.13); }
+.earthdna .sw { width: 10px; height: 10px; border-radius: 50%; }
+.earthdna .dom { color: var(--muted); }
+.earthdna .n { font-family: var(--f-data); font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.earthdna #tip {
+	position: fixed; z-index: 60; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+	padding: 7px 10px; font-size: 0.78rem; line-height: 1.35; max-width: 280px; transform: translate(14px, 14px);
+}
+.earthdna #tip[hidden] { display: none; }
+.earthdna #tip .g { font-family: var(--f-taxon); font-style: italic; font-size: 1rem; }
+.earthdna #tip .m { color: var(--muted); }
+.earthdna #tip .w { color: var(--gold); margin-top: 3px; }
+.earthdna .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.earthdna .dot.red { background: #f45c7a; }
+.earthdna .dot.amber { background: #f7bf4c; }
+.earthdna #labels { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+.earthdna #labels span { position: absolute; left: 0; top: 0; white-space: nowrap; color: var(--ink); transform-origin: 0 0;
+	text-shadow: 0 0 3px var(--space), 0 0 6px var(--space), 0 0 10px var(--space); will-change: transform; }
+.earthdna #labels span[hidden] { display: none; }
+.earthdna #labels .L0 { font-size: 1.05rem; font-weight: 600; letter-spacing: 0.32em; text-transform: uppercase; color: #f3e6c4; }
+.earthdna #labels .L1 { font-size: 0.85rem; font-weight: 500; letter-spacing: 0.06em; }
+.earthdna #labels .L2 { font-size: 0.74rem; color: #c3cfdc; }
+.earthdna #labels .L3 { font-family: var(--f-taxon); font-style: italic; font-size: 0.82rem; color: #d8e2ec; }
+.earthdna #labels .L4 { font-family: var(--f-taxon); font-style: italic; font-size: 0.74rem; color: #b9c7d6; }
+.earthdna #loading { position: absolute; inset: 0; display: grid; place-items: center; z-index: 4; color: var(--muted); font-size: 0.9rem; pointer-events: none; }
+.earthdna #loading[hidden] { display: none; }
+.earthdna #hint { position: absolute; z-index: 2; right: 12px; bottom: 12px; font-size: 0.72rem; color: var(--muted); text-align: right; line-height: 1.5; }
+@media (max-width: 640px) {
+	.earthdna #hint { display: none; }
+	.earthdna #head { padding: 12px 14px; gap: 10px; }
+	.earthdna .sub { display: none; }
+	.earthdna .sliders { display: none; }
+	.earthdna #key { max-height: 30%; }
+}
