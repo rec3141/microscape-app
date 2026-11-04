@@ -76,7 +76,7 @@
 		{#each ranked as item (item.code)}
 			<li>
 				<button
-					class="row"
+					class="taxon"
 					disabled={item.code === NONE || (filter !== null && level === filter.rank)}
 					onclick={() => (stack = [...stack, { rank: level, code: item.code, name: item.name }])}
 				>
@@ -91,22 +91,23 @@
 </div>
 
 <style>
-	.picker { display: grid; gap: 8px; padding: 10px 12px 10px; min-width: 0; }
+	/* fills the card it sits in; only the list scrolls */
+	.picker { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 10px; min-width: 0; min-height: 0; }
 	.rankpick { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--muted); }
 	.rankpick select { flex: 1; font: inherit; font-size: 0.8rem; color: var(--ink); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
 	.head { display: flex; gap: 8px; font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-	.cols { margin-left: auto; display: flex; gap: 10px; }
-	.cols span { min-width: 3.2rem; text-align: right; }
-	.rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; max-height: min(52dvh, 520px); overflow-y: auto; }
+	.cols { margin-left: auto; display: flex; gap: 8px; padding-right: 6px; }
+	.cols span { width: 4rem; text-align: right; }
+	.rows { list-style: none; margin: 0; padding: 0; display: grid; align-content: start; gap: 1px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 	.up { width: 100%; text-align: left; font: inherit; font-size: 0.78rem; color: #38bdf8; background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 4px 6px; margin-bottom: 2px; cursor: pointer; }
-	.up:hover, .row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); }
-	.row { width: 100%; display: grid; grid-template-columns: 9px minmax(0, 1fr) auto auto; align-items: start; gap: 8px; text-align: left; font: inherit; font-size: 0.8rem; color: var(--ink); background: transparent; border: 0; border-radius: 5px; padding: 3px 6px; cursor: pointer; }
-	.row:disabled { cursor: default; }
+	.up:hover, .taxon:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); }
+	.taxon { width: 100%; display: grid; grid-template-columns: 9px minmax(0, 1fr) auto auto; align-items: start; gap: 8px; text-align: left; font: inherit; font-size: 0.8rem; color: var(--ink); background: transparent; border: 0; border-radius: 5px; padding: 3px 6px; cursor: pointer; }
+	.taxon:disabled { cursor: default; }
 	.sw { width: 9px; height: 9px; border-radius: 50%; margin-top: 0.32em; }
 	/* min-width: 0 lets a long name wrap rather than shove the counts off the row */
 	.nm { min-width: 0; overflow-wrap: anywhere; }
 	.nm.unc { color: var(--muted); font-style: italic; }
-	.n { min-width: 3.2rem; text-align: right; font-family: var(--f-data); font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+	.n { width: 4rem; text-align: right; font-family: var(--f-data); font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 	@media (max-width: 640px) { .rows { max-height: 40dvh; } }
 </style>

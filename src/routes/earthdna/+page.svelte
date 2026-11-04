@@ -50,6 +50,7 @@
 		<div id="hint">Drag: rotate · Scroll or pinch: zoom<br />Double-click: centre · Esc: clear</div>
 	</div>
 
+	<div class="leftcol">
 	<section id="head" class="card">
 		<div>
 			<h1>EarthDNA</h1>
@@ -96,14 +97,15 @@
 		</div>
 	</section>
 
-	<details id="key" class="card" open>
-		<summary><span>Taxa</span></summary>
+	<section id="key" class="card" aria-label="Taxa">
+		<h2>Taxa</h2>
 		{#if taxa}
 			<TaxonPicker bind:this={picker} {taxa} {view} asvsShown={asvVersion > 0} version={asvVersion} />
 		{:else}
 			<p class="keywait">Loading the taxonomy…</p>
 		{/if}
-	</details>
+	</section>
+	</div>
 
 	<details id="runcard" class="card" open hidden>
 		<summary><span>Amplicon runs · click one, shift-click to add</span><span id="nruns"></span></summary>
