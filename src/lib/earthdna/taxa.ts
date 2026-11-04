@@ -75,6 +75,8 @@ export interface Taxa {
 	levels: string[];
 	names: string[][];
 	find: (name: string) => Taxon[] | null;
+	count: (name: string) => number; // references carrying the most-used taxon of that name
+	describe: (name: string) => string; // 'genus · 8,123' for a suggestion list
 }
 
 export const NONE = 65535;

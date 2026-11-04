@@ -46,6 +46,8 @@
 		placeholder="Find a taxon, e.g. Pseudomonadota"
 		{candidates}
 		expand={expandTaxonQuery}
+		weight={taxa.count}
+		detail={taxa.describe}
 		onPick={navigateToTaxon}
 	/>
 
