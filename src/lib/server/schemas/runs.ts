@@ -28,7 +28,7 @@ export type Visibility = z.infer<typeof VISIBILITY>;
 // as an alias for `/runs/<id>/files/`), which means slugs must not collide
 // with any top-level route or static asset path the app owns.
 const RESERVED_SLUGS = new Set([
-	'settings', 'auth', 'api', 'runs', 'account', 'privacy', 'admin',
+	'settings', 'auth', 'api', 'runs', 'account', 'privacy', 'admin', 'earthdna',
 	'_app', '_protected', 'favicon.ico', 'favicon.png', 'manifest.json',
 	'robots.txt'
 ]);

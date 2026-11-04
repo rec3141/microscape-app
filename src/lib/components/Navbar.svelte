@@ -32,6 +32,7 @@
 
 	const navLinks: { href: string; label: string; adminOnly?: boolean }[] = [
 		{ href: '/runs', label: 'Runs' },
+		{ href: '/earthdna', label: 'EarthDNA' },
 		{ href: '/settings', label: 'Admin', adminOnly: true }
 	];
 </script>
