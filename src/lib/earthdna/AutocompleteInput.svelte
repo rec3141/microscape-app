@@ -1,6 +1,7 @@
 <script lang="ts">
 	// Ported from danaSeq illumina_amplicon viz (viz/src/components/AutocompleteInput.svelte),
-	// restyled to this app's slate palette.
+	// restyled to this app's slate palette. Adds weight (bigger first within a match tier, so a common
+	// taxon beats a rare one of a similar name) and detail (a note beside each suggestion).
 	interface Props {
 		value?: string;
 		placeholder?: string;
@@ -13,6 +14,8 @@
 		// been retired can still lead to the one that replaced it. Returns the
 		// query first; anything after it is a synonym and ranks below a direct hit.
 		expand?: ((q: string) => string[]) | null;
+		weight?: ((s: string) => number) | null;
+		detail?: ((s: string) => string) | null;
 	}
 
 	let {
@@ -23,7 +26,9 @@
 		maxSuggestions = 8,
 		onPick = null,
 		onType = null,
-		expand = null
+		expand = null,
+		weight = null,
+		detail = null
 	}: Props = $props();
 
 	let focused = $state(false);
@@ -47,10 +52,10 @@
 			return -1;
 		};
 
-		return candidates
-			.map((c) => ({ c, r: rank(c) }))
-			.filter((x) => x.r >= 0)
-			.sort((a, b) => a.r - b.r || a.c.localeCompare(b.c))
+		const hits = candidates.map((c) => ({ c, r: rank(c), w: 0 })).filter((x) => x.r >= 0);
+		if (weight) for (const x of hits) x.w = weight(x.c);
+		return hits
+			.sort((a, b) => a.r - b.r || b.w - a.w || a.c.localeCompare(b.c))
 			.slice(0, maxSuggestions)
 			.map((x) => x.c);
 	});
@@ -104,7 +109,7 @@
 						class="w-full text-left px-2 py-1 text-xs truncate {i === selectedIdx ? 'bg-ocean-600 text-white' : 'text-slate-300 hover:bg-slate-800'}"
 						onmousedown={() => pick(s)}
 					>
-						{s}
+						{s}{#if detail}<span class="ml-2 text-[10px] {i === selectedIdx ? 'text-ocean-100' : 'text-slate-500'}">{detail(s)}</span>{/if}
 					</button>
 				</li>
 			{/each}

@@ -41,7 +41,8 @@ function generatePalette(n) {
 	for (let i = 0; i < n; i++) colors.push(hsl((120 + i * 137.508) % 360, (55 + (i % 3) * 15) / 100, (45 + (i % 4) * 8) / 100));
 	return colors;
 }
-const NONE = 65535, OTHER = 127, GREY = [0.42, 0.47, 0.55];
+// colour slots: one per listed taxon, then unclassified (bright, so it stands out from dimmed points) and the rest
+const NONE = 65535, UNCLASSIFIED = 126, OTHER = 127, GREY = [0.42, 0.47, 0.55], BRIGHT = [0.96, 0.93, 0.82];
 // names compared between run taxonomies and the reference: case and underscores ignored
 const norm = (s) => s.trim().toLowerCase().replace(/_/g, ' ');
 const css = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
@@ -581,16 +582,49 @@ void main() {
 		for (let r = 0; r < rankNames.length; r++) { const c = rankCode(r, i); if (c !== NONE && rankNames[r][c] != null) out.push({ rank: r, code: c, name: rankNames[r][c] }); }
 		return out;
 	}
-	// first rank a name is used at (exact, case-insensitive) and the lineage above it, from one member
+	// every (rank, code) a name is used at, with its reference count, biggest first
+	let byName = null;
+	function namesIndex() {
+		byName = new Map();
+		rankNames.forEach((names, r) => {
+			const n = new Int32Array(names.length);
+			for (let i = 0; i < N; i++) { const c = rankCode(r, i); if (c !== NONE) n[c]++; }
+			names.forEach((name, c) => {
+				const k = name.toLowerCase();
+				if (!byName.has(k)) byName.set(k, []);
+				byName.get(k).push({ rank: r, code: c, count: n[c] });
+			});
+		});
+		for (const v of byName.values()) v.sort((a, b) => b.count - a.count);
+	}
+	const uses = (name) => byName.get((name || '').toLowerCase()) || [];
+	// the most-used taxon of that name (exact, case-insensitive) and the lineage above it: at each higher rank
+	// the taxon most of its members carry, so a few mislabelled references cannot hang it under the wrong domain
 	function find(name) {
-		const lower = (name || '').toLowerCase();
-		for (let r = 0; r < rankNames.length; r++) {
-			const c = rankNames[r].findIndex((n) => n.toLowerCase() === lower);
-			if (c < 0) continue;
-			for (let i = 0; i < N; i++) if (rankCode(r, i) === c) return lineageOf(i).filter((x) => x.rank <= r);
-			return [{ rank: r, code: c, name: rankNames[r][c] }];
+		const hit = uses(name)[0];
+		if (hit) {
+			const r = hit.rank, c = hit.code;
+			const tally = Array.from({ length: r }, () => new Map());
+			for (let i = 0; i < N; i++) {
+				if (rankCode(r, i) !== c) continue;
+				for (let q = 0; q < r; q++) { const k = rankCode(q, i); tally[q].set(k, (tally[q].get(k) || 0) + 1); }
+			}
+			const out = [];
+			tally.forEach((m, q) => {
+				let best = NONE, n = -1;
+				for (const [k, v] of m) if (k !== NONE && v > n) { best = k; n = v; }
+				if (best !== NONE) out.push({ rank: q, code: best, name: rankNames[q][best] });
+			});
+			out.push({ rank: r, code: c, name: rankNames[r][c] });
+			return out;
 		}
 		return null;
+	}
+	const count = (name) => uses(name)[0]?.count ?? 0;
+	function describe(name) {
+		const u = uses(name);
+		if (!u.length) return '';
+		return `${meta.ranks.levels[u[0].rank]} · ${u[0].count.toLocaleString()}` + (u.length > 1 ? ` (+${u.length - 1} more)` : '');
 	}
 	function view(level, filter) {
 		if (!rankArr) return [];
@@ -610,11 +644,12 @@ void main() {
 		const palette = generatePalette(ranked.length), slot = new Map();
 		cols = new Float32Array(128 * 3);
 		ranked.forEach((t, k) => {
-			const c = t.code === NONE || k >= OTHER ? GREY : palette[k];
+			const c = t.code === NONE ? BRIGHT : k >= UNCLASSIFIED ? GREY : palette[k];
 			t.color = css(c);
-			if (t.code !== NONE && k < OTHER) { slot.set(t.code, k); cols.set(c, 3 * k); }
+			if (t.code !== NONE && k < UNCLASSIFIED) { slot.set(t.code, k); cols.set(c, 3 * k); }
 		});
-		cols.set(GREY, 3 * OTHER);
+		cols.set(BRIGHT, 3 * UNCLASSIFIED); cols.set(GREY, 3 * OTHER);
+		slot.set(NONE, UNCLASSIFIED);
 		for (let i = 0; i < N; i++) { const k = slot.get(rankCode(level, i)); cidx[i] = k === undefined ? OTHER : k; }
 		gl.bindBuffer(gl.ARRAY_BUFFER, cidxBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, cidx);
 		gl.bindBuffer(gl.ARRAY_BUFFER, selBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, sel);
@@ -859,7 +894,8 @@ void main() {
 		rankArr = [0, 1, 2, 3].map((k) => new Uint16Array(rk.buffer, 2 * k * N, N));
 		const R = meta.ranks;
 		rankNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
-		onTaxa({ levels: R.levels, names: rankNames, find });
+		namesIndex();
+		onTaxa({ levels: R.levels, names: rankNames, find, count, describe });
 		await asvs;
 	}
 	resize(); centreOn(0, 0.12); raf = requestAnimationFrame(frame);
