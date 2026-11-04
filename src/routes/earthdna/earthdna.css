@@ -26,7 +26,10 @@
 	position: absolute; z-index: 2; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 	backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
-.earthdna #head { top: 12px; left: 12px; width: min(340px, calc(100% - 24px)); padding: 14px 16px; display: grid; gap: 12px; }
+/* left column: controls, then the taxa picker filling what height is left (its list scrolls) */
+.earthdna .leftcol { position: absolute; z-index: 2; top: 12px; left: 12px; bottom: 12px; width: min(340px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.earthdna .leftcol > .card { position: relative; pointer-events: auto; }
+.earthdna #head { flex: none; padding: 14px 16px; display: grid; gap: 12px; }
 .earthdna h1 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: 0.01em; text-wrap: balance; }
 .earthdna .sub { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
 .earthdna .sub b { color: var(--ink); font-weight: 500; font-family: var(--f-data); font-size: 0.76rem; }
@@ -51,8 +54,9 @@
 .earthdna .sliders { display: grid; gap: 6px; }
 .earthdna .slider { display: grid; grid-template-columns: 4.6rem 1fr; gap: 8px; align-items: center; font-size: 0.75rem; color: var(--muted); }
 .earthdna .slider input { width: 100%; accent-color: var(--gold); }
-.earthdna #key { top: 12px; right: 12px; width: min(320px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: hidden; }
-.earthdna #runcard { bottom: 12px; left: 12px; width: min(340px, calc(100% - 24px)); }
+.earthdna #key { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.earthdna #key h2 { margin: 0; flex: none; padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 0.72rem; font-weight: 400; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.earthdna #runcard { top: 12px; right: 12px; width: min(320px, calc(100% - 24px)); }
 .earthdna #runcard[hidden] { display: none; }
 .earthdna .keywait { margin: 0; padding: 10px 16px; font-size: 0.78rem; color: var(--muted); }
 .earthdna .card > summary { list-style: none; cursor: pointer; padding: 10px 16px; font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
@@ -96,6 +100,7 @@
 @media (max-width: 640px) {
 	.earthdna { height: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
 	.earthdna .stage { position: relative; inset: auto; height: min(70dvh, 100vw); flex: none; }
+	.earthdna .leftcol { display: contents; }
 	.earthdna .card, .earthdna #head, .earthdna #key, .earthdna #runcard { position: static; width: auto; max-height: none; margin: 0 8px; }
 	.earthdna #hint { display: none; }
 	.earthdna #head { padding: 12px 14px; gap: 10px; }
