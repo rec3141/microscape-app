@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
-import { getDb } from '$lib/server/db';
+import { findAccessibleRun } from '$lib/server/run-access';
 import { serveRunFile } from '$lib/server/serve-run-file';
 
 /**
@@ -23,26 +23,7 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
 		});
 	}
 
-	const user = locals.user;
-	const db = getDb();
-	const uid = user?.id ?? '';
-
-	const run = db.prepare(
-		`SELECT r.id, r.data_path, r.visibility, l.slug AS lab_slug
-		 FROM runs r
-		 JOIN labs l ON l.id = r.lab_id AND l.deleted_at IS NULL
-		 LEFT JOIN lab_memberships m
-		   ON m.lab_id = r.lab_id AND m.user_id = ? AND m.status = 'active'
-		 LEFT JOIN run_access ra
-		   ON ra.run_id = r.id AND ra.user_id = ?
-		 WHERE r.id = ?
-		   AND (
-		     r.visibility = 'public'
-		     OR (? != '' AND (r.visibility = 'shared' OR m.user_id IS NOT NULL OR ra.user_id IS NOT NULL))
-		   )`
-	).get(uid, uid, params.id, uid) as
-		| { id: string; data_path: string; visibility: string; lab_slug: string }
-		| undefined;
+	const run = findAccessibleRun(locals.user ?? null, params.id);
 	if (!run) throw error(404, 'Not found');
 
 	return serveRunFile(run, params.subpath ?? '', {

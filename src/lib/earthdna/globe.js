@@ -14,8 +14,8 @@ import { TAXON_SYNONYMS } from './taxa';
  *            uint16), ranks.bin (phylum, class, order, family uint16),
  *            layout_sculpt.bin, flags.bin
  *   release  reference release the runs' placements must name
- *   runs     [{ id, slug, name, lab_name }] — fetched through
- *            /runs/<id>/files/data/{globe,asvs}.json
+ *   runs     [{ id, slug, name, lab_name }] — each fetched from /earthdna/runs/<id>
+ *            (src/routes/earthdna/runs/[id]/+server.ts)
  *   onTaxa   called once the rank codes are in, with { levels, names, find }
  *   onPick   called with a clicked reference's lineage [{ rank, code, name }]
  *   onClear  called on Escape
@@ -660,13 +660,12 @@ void main() {
 		if (!r.ok) throw new Error(`${r.status}`);
 		return r.json();
 	}
-	// one run's globe.json + asvs.json (taxonomy, read counts); null when it cannot be used
+	// one run's placed ASVs: { reference, regions, taxa, asvs: [[id, lon, lat, region, reads, samples, taxon]] }
 	async function loadRun(run) {
-		const files = `/runs/${encodeURIComponent(run.id)}/files/data`;
-		const [globe, info] = await Promise.all([fetchJson(`${files}/globe.json`), fetchJson(`${files}/asvs.json`).catch(() => [])]);
-		const rel = globe.reference && globe.reference.release;
+		const g = await fetchJson(`/earthdna/runs/${encodeURIComponent(run.id)}`);
+		const rel = g.reference && g.reference.release;
 		if (rel && String(rel) !== String(release)) return { skipped: `reference SILVA ${rel}` };
-		return { globe, info };
+		return { globe: g };
 	}
 	async function loadAsvs() {
 		const got = new Array(runs.length);
@@ -689,18 +688,13 @@ void main() {
 		let i = 0;
 		got.forEach((g, k) => {
 			if (!g.globe) return;
-			const F = g.globe.fields, fi = (f) => F.indexOf(f);
-			const cId = fi('id'), cLon = fi('lon'), cLat = fi('lat'), cReg = fi('region');
-			const byId = new Map((Array.isArray(g.info) ? g.info : []).map((a) => [a.id, a]));
 			const rmap = g.globe.regions.map((r) => { if (!regIx.has(r)) { regIx.set(r, regions.length); regions.push(r); } return regIx.get(r); });
-			for (const row of g.globe.asvs) {
-				const a = byId.get(row[cId]);
-				ids[i] = row[cId];
-				lon[i] = Math.round((row[cLon] + 180) / 360 * 65535); lat[i] = Math.round((row[cLat] + 90) / 180 * 65535);
-				reads[i] = a ? a.total_reads : 0; ns[i] = a ? a.n_samples : 0;
-				const t = (a && a.taxonomy) || '';
-				if (!taxIx.has(t)) { taxIx.set(t, taxa.length); taxa.push(t); }
-				tax[i] = taxIx.get(t); run[i] = k; reg[i] = Math.min(255, rmap[row[cReg]]);
+			const tmap = g.globe.taxa.map((t) => { if (!taxIx.has(t)) { taxIx.set(t, taxa.length); taxa.push(t); } return taxIx.get(t); });
+			for (const [id, lo, la, rg, rd, sm, tx] of g.globe.asvs) {
+				ids[i] = id;
+				lon[i] = Math.round((lo + 180) / 360 * 65535); lat[i] = Math.round((la + 90) / 180 * 65535);
+				reads[i] = rd; ns[i] = sm;
+				tax[i] = tmap[tx]; run[i] = k; reg[i] = Math.min(255, rmap[rg]);
 				perRun[k].n++; perRun[k].regs[reg[i]] = (perRun[k].regs[reg[i]] || 0) + 1;
 				i++;
 			}
