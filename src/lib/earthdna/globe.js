@@ -117,7 +117,7 @@ void main() {
   vec3 s = project(vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat)));
   bool vis = s.z > 0.5 && aOn > 0u;
   gl_Position = vec4(s.xy, 0.0, vis ? 1.0 : 0.0);
-  gl_PointSize = vis ? uSize * (0.6 + float(aSz) / 255.0 * 5.4) : 0.0;  // 10x from the rarest ASV to the most read
+  gl_PointSize = vis ? uSize * (0.3 + float(aSz) / 255.0 * 29.7) : 0.0;  // 100x from the rarest ASV to the most read
   vCol = vec4(aCol, 0.95);
 }`, `#version 300 es
 precision mediump float;
