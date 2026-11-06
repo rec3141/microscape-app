@@ -109,7 +109,9 @@
 
 	<details id="runcard" class="card" open hidden>
 		<summary><span>Amplicon runs · click one, shift-click to add</span><span id="nruns"></span></summary>
+		<input id="runsearch" type="search" placeholder="Filter runs by name, lab or region · Enter shows only matches" aria-label="Filter amplicon runs" autocomplete="off" />
 		<ul id="runs"></ul>
+		<p id="runsnone" class="keywait" hidden>No run matches.</p>
 	</details>
 
 	<div id="tip" hidden></div>

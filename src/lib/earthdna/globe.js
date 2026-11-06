@@ -796,6 +796,26 @@ void main() {
 			li.appendChild(b); ul.appendChild(li);
 		});
 		asv.shown = ul.children.length;
+		// the search box: typing narrows the list (name, lab, regions); Enter turns on just the listed runs
+		const q = $('runsearch'), none = $('runsnone');
+		const text = Array.from(ul.children, (li) => li.textContent.toLowerCase());
+		function filterRuns() {
+			const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+			let shown = 0;
+			Array.from(ul.children).forEach((li, j) => { const hit = words.every((w) => text[j].includes(w)); li.hidden = !hit; shown += hit; });
+			none.hidden = shown > 0;
+			$('nruns').textContent = words.length ? `${shown} of ${asv.shown}` : asv.shown;
+		}
+		on(q, 'input', filterRuns);
+		on(q, 'keydown', (e) => {
+			if (e.key === 'Escape') { q.value = ''; filterRuns(); e.stopPropagation(); }
+			if (e.key !== 'Enter') return;
+			const listed = Array.from(ul.children).filter((li) => !li.hidden).map((li) => +li.dataset.k);
+			if (!listed.length) return;
+			asv.runOn.fill(0); for (const k of listed) asv.runOn[k] = 1;
+			syncAsvOn();
+		});
+		asv.filterRuns = filterRuns;
 	}
 	// an ASV's position in a layout: its own placement on the similarity map, its nearest reference's elsewhere
 	function asvLayout(name) {
@@ -836,7 +856,7 @@ void main() {
 		$('asvBtn').setAttribute('aria-pressed', asvOn ? 'true' : 'false');
 		$('asvBtn').textContent = asvOn ? 'Hide amplicon runs' : 'Show amplicon runs';
 		$('runcard').hidden = !asvOn;
-		$('nruns').textContent = asv.shown;
+		asv.filterRuns();
 		const skip = asv.skipped.length ? ` · ${asv.skipped.length} not shown (${asv.skipped.join('; ')})` : '';
 		$('status').textContent = asvOn ? `${asv.n.toLocaleString()} ASVs from ${asv.shown} amplicon runs, placed by sequence on the reference globe${skip}` : IDLE;
 		dirty = true;
