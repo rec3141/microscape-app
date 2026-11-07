@@ -14,16 +14,21 @@
 	let { taxa, view, asvsShown = false, version = 0 }: Props = $props();
 
 	const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-	let base = $state(0); // the rank coloured when nothing is picked; Domain, as in danaSeq
+	// the rank coloured when nothing is picked: class, which splits each globe into readable regions
+	let base = $state(Math.max(0, taxa.levels.indexOf('class')));
 	let stack = $state<Taxon[]>([]);
 	let query = $state('');
 	let filter = $derived(stack.length ? stack[stack.length - 1] : null);
 	let level = $derived(filter ? Math.min(filter.rank + 1, taxa.levels.length - 1) : base);
 	let ranked = $state<RankedTaxon[]>([]);
 
+	// the globe colours every taxon; the list draws the first rows (a GTDB species list has 143k)
+	const PAGE = 300;
+	let shown = $state(PAGE);
 	$effect(() => {
 		void version;
 		ranked = view(level, filter);
+		shown = PAGE;
 	});
 
 	let candidates = $derived([...new Set(taxa.names.flat().filter(Boolean))]);
@@ -55,7 +60,7 @@
 		<label class="rankpick">
 			<span>Colour by</span>
 			<select bind:value={base}>
-				{#each taxa.levels.slice(0, -1) as l, i}
+				{#each taxa.levels as l, i}
 					<option value={i}>{cap(l)}</option>
 				{/each}
 			</select>
@@ -75,7 +80,7 @@
 				</button>
 			</li>
 		{/if}
-		{#each ranked as item (item.code)}
+		{#each ranked.slice(0, shown) as item (item.code)}
 			<li>
 				<button
 					class="taxon"
@@ -89,6 +94,13 @@
 				</button>
 			</li>
 		{/each}
+		{#if ranked.length > shown}
+			<li>
+				<button class="up" onclick={() => (shown += 10 * PAGE)}>
+					Show {Math.min(10 * PAGE, ranked.length - shown).toLocaleString()} more of {(ranked.length - shown).toLocaleString()}
+				</button>
+			</li>
+		{/if}
 	</ul>
 </div>
 

@@ -19,6 +19,8 @@ export interface Dataset {
 	unit: [string, string];
 	blurb: string;
 	source: string;
+	/** still of the sculpted globe for the picker (earthdna pipeline/render_preview.py) */
+	preview: string;
 }
 
 export const DATASETS: Dataset[] = [
@@ -30,7 +32,8 @@ export const DATASETS: Dataset[] = [
 		count: 905628,
 		unit: ['sequence', 'sequences'],
 		blurb: 'Every SSU rRNA gene in SILVA 144 NR99, with your amplicon runs placed on the same map.',
-		source: 'SSU rRNA sequences from SILVA 144 NR99'
+		source: 'SSU rRNA sequences from SILVA 144 NR99',
+		preview: '/earthdna/previews/silva.webp'
 	},
 	{
 		slug: 'gtdb',
@@ -40,7 +43,8 @@ export const DATASETS: Dataset[] = [
 		count: 3886471,
 		unit: ['fragment', 'fragments'],
 		blurb: '10 kb fragments of all 143k GTDB r226 species-representative genomes, bacteria and archaea.',
-		source: '10 kb fragments of GTDB r226 species-representative genomes'
+		source: '10 kb fragments of GTDB r226 species-representative genomes',
+		preview: '/earthdna/previews/gtdb.webp'
 	}
 ];
 
