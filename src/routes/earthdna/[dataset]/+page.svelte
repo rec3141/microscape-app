@@ -104,8 +104,8 @@
 		</div>
 		<div id="status">Drag to turn the globe. Click a point to pick out its genus.</div>
 		<div class="sliders">
-			<label class="slider" for="size">Point size <input id="size" type="range" min="0.5" max="6" step="0.1" value="1.6" /></label>
-			<label class="slider" for="alpha">Opacity <input id="alpha" type="range" min="0.05" max="1" step="0.01" value="0.75" /></label>
+			<label class="slider" for="size">Point size <input id="size" type="range" min="0.5" max="6" step="0.1" value="0.5" /></label>
+			<label class="slider" for="alpha">Opacity <input id="alpha" type="range" min="0.05" max="1" step="0.01" value="1" /></label>
 		</div>
 	</section>
 

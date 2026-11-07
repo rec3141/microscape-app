@@ -887,7 +887,9 @@ void main() {
 		const ab = await new Blob(parts).arrayBuffer();
 		if (ab.byteLength !== 5 * N) throw new Error('data file has the wrong size');
 		grp = new Uint8Array(ab, 4 * N, N);
+		$('loading').textContent = 'Loading the taxonomy…';
 		const sculptReq = fetchBin('layout_sculpt.bin').catch(() => null);
+		const ranksReq = fetchBin('ranks.bin');
 		const tx = await fetchBin('tax.bin');
 		const sb4 = meta.speciesBytes === 4;
 		if (tx.length !== (sb4 ? 8 : 6) * N) throw new Error('taxonomy file has the wrong size');
@@ -918,16 +920,18 @@ void main() {
 		} else current = 'similarity';
 		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === current ? 'true' : 'false');
 		buildIndex(layouts[current].lon, layouts[current].lat);
-		$('nseq').textContent = N.toLocaleString();
-		$('loading').hidden = true; dirty = true;
-		// amplicon runs load and show only when asked (Show amplicon runs)
-		// rank codes for the picker: domain (from the groups), phylum..family, genus, species
-		const rk = await fetchBin('ranks.bin');
+		// rank codes for the picker: domain (from the groups), phylum..family, genus, species. The globe opens
+		// coloured by class (TaxonPicker's default), so it is coloured that way before it first shows.
+		const rk = await ranksReq;
 		if (!alive) return;
 		if (rk.length !== 8 * N) throw new Error('rank file has the wrong size');
 		rankArr = [0, 1, 2, 3].map((k) => new Uint16Array(rk.buffer, 2 * k * N, N));
 		const R = meta.ranks;
 		rankNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
+		view(Math.max(0, R.levels.indexOf('class')), null);
+		$('nseq').textContent = N.toLocaleString();
+		$('loading').hidden = true; dirty = true;
+		// amplicon runs load and show only when asked (Show amplicon runs)
 		namesIndex();
 		onTaxa({ levels: R.levels, names: rankNames, find, count, describe });
 	}
