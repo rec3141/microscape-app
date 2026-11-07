@@ -6,13 +6,15 @@ import { TAXON_SYNONYMS } from './taxa';
  * (danaSeq illumina_amplicon PLACE_GLOBE → data/globe.json) drawn on top.
  *
  * mountGlobe(root, { base, release, runs, onTaxa, onPick, onClear }) wires up
- * the markup in src/routes/earthdna/+page.svelte (elements found by id inside
+ * the markup in src/routes/earthdna/[dataset]/+page.svelte (elements found by id inside
  * root) and returns { destroy, view }.
  *
  *   base     URL of the reference files: globe.json, pos.bin (lon, lat
- *            uint16 + group uint8), tax.bin (genus, lineage, species
- *            uint16), ranks.bin (phylum, class, order, family uint16),
+ *            uint16 + group uint8), tax.bin (genus, lineage uint16, species
+ *            uint16, or uint32 when globe.json says speciesBytes 4),
+ *            ranks.bin (phylum, class, order, family uint16),
  *            layout_sculpt.bin, flags.bin
+ *   unit, unitOne  what a point is, for the page's text ('sequences', 'sequence')
  *   release  reference release the runs' placements must name
  *   runs     [{ id, slug, name, lab_name }] — each fetched from /earthdna/runs/<id>
  *            (src/routes/earthdna/runs/[id]/+server.ts)
@@ -47,7 +49,7 @@ const NONE = 65535, UNCLASSIFIED = 126, OTHER = 127, GREY = [0.42, 0.47, 0.55], 
 const norm = (s) => s.trim().toLowerCase().replace(/_/g, ' ');
 const css = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
 
-export function mountGlobe(root, { base, release, runs, onTaxa = () => {}, onPick = () => {}, onClear = () => {}, onAsvs = () => {} }) {
+export function mountGlobe(root, { base, release, runs, unit = 'sequences', unitOne = 'sequence', onTaxa = () => {}, onPick = () => {}, onClear = () => {}, onAsvs = () => {} }) {
 	const $ = (id) => root.querySelector('#' + id);
 	const canvas = $('gl');
 	const gl = canvas.getContext('webgl2', { antialias: true, premultipliedAlpha: false });
@@ -404,7 +406,7 @@ void main() {
 		} else $('status').textContent = IDLE;
 		dirty = true;
 	}
-	const SCULPT = 'Sculpted: each sequence is gently pulled toward its domain, phylum, class and order. ASVs sit on their nearest reference.';
+	const SCULPT = `Sculpted: each ${unitOne} is gently pulled toward its domain, phylum, class and order.${runs.length ? ' ASVs sit on their nearest reference.' : ''}`;
 	async function showLayout(name) {
 		if (name === current || morph) return;
 		if (!layouts[name]) {
@@ -590,6 +592,7 @@ void main() {
 			const n = new Int32Array(names.length);
 			for (let i = 0; i < N; i++) { const c = rankCode(r, i); if (c !== NONE) n[c]++; }
 			names.forEach((name, c) => {
+				if (name == null) return;
 				const k = name.toLowerCase();
 				if (!byName.has(k)) byName.set(k, []);
 				byName.get(k).push({ rank: r, code: c, count: n[c] });
@@ -665,7 +668,7 @@ void main() {
 			}
 			syncAsvOn();
 		}
-		$('status').textContent = filter ? `${rankNames[filter.rank][filter.code]} · ${members.toLocaleString()} sequences` : IDLE;
+		$('status').textContent = filter ? `${rankNames[filter.rank][filter.code]} · ${members.toLocaleString()} ${unit}` : IDLE;
 		dirty = true;
 		return ranked;
 	}
@@ -875,16 +878,25 @@ void main() {
 			const { done, value } = await reader.read(); if (done) break;
 			if (!alive) { reader.cancel(); return; }
 			parts.push(value); got += value.length;
-			$('loading').textContent = `Loading ${N.toLocaleString()} sequences… ${Math.min(100, Math.round(100 * got / total))}%`;
+			$('loading').textContent = `Loading ${N.toLocaleString()} ${unit}… ${Math.min(100, Math.round(100 * got / total))}%`;
 		}
 		const ab = await new Blob(parts).arrayBuffer();
 		if (ab.byteLength !== 5 * N) throw new Error('data file has the wrong size');
 		grp = new Uint8Array(ab, 4 * N, N);
 		const sculptReq = fetchBin('layout_sculpt.bin').catch(() => null);
 		const tx = await fetchBin('tax.bin');
-		if (tx.length !== 6 * N) throw new Error('taxonomy file has the wrong size');
+		const sb4 = meta.speciesBytes === 4;
+		if (tx.length !== (sb4 ? 8 : 6) * N) throw new Error('taxonomy file has the wrong size');
 		if (!alive) return;
-		gen = new Uint16Array(tx.buffer, 0, N); lin = new Uint16Array(tx.buffer, 2 * N, N); spc = new Uint16Array(tx.buffer, 4 * N, N);
+		gen = new Uint16Array(tx.buffer, 0, N); lin = new Uint16Array(tx.buffer, 2 * N, N);
+		if (sb4) {
+			// more species than uint16 holds (GTDB): uint32 codes, 2^32-1 = none. Codes from 65535 up move up one and
+			// 65535 becomes none, so every NONE check keeps working; the species list gets a gap at 65535 to match.
+			const raw = new Uint32Array(tx.buffer, 4 * N, N);
+			spc = new Uint32Array(N);
+			for (let i = 0; i < N; i++) { const c = raw[i]; spc[i] = c === 0xffffffff ? NONE : c >= NONE ? c + 1 : c; }
+			if (meta.species.length >= NONE) meta.species.splice(NONE, 0, null);
+		} else spc = new Uint16Array(tx.buffer, 4 * N, N);
 		sel = new Uint8Array(N);
 		const ng = meta.groups.length;
 		const doms = [...new Set(meta.groups.map((g) => g.split(' · ')[0]))];
@@ -919,7 +931,7 @@ void main() {
 		await asvs;
 	}
 	resize(); centreOn(0, 0.12); raf = requestAnimationFrame(frame);
-	load().catch((e) => { if (alive) $('loading').textContent = `The sequence data did not load (${e.message}). Reload the page to try again.`; });
+	load().catch((e) => { if (alive) $('loading').textContent = `The ${unitOne} data did not load (${e.message}). Reload the page to try again.`; });
 
 	const destroy = () => {
 		alive = false;

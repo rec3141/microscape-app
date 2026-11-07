@@ -1,118 +1,34 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { mountGlobe } from '$lib/earthdna/globe.js';
-	import TaxonPicker from '$lib/earthdna/TaxonPicker.svelte';
-	import type { RankedTaxon, Taxa, Taxon } from '$lib/earthdna/taxa';
-	import './earthdna.css';
-
-	interface GlobeRun {
-		id: string;
-		slug: string;
-		name: string;
-		lab_name: string;
-		access_via: 'public' | 'shared' | 'lab' | 'invited' | null;
-	}
-	interface Props {
-		data: { runs: GlobeRun[]; signedIn: boolean };
-	}
-
-	let { data }: Props = $props();
-	let root: HTMLElement;
-	let taxa = $state<Taxa | null>(null);
-	let asvVersion = $state(0);
-	let picker = $state<ReturnType<typeof TaxonPicker> | null>(null);
-	let view = $state<(level: number, filter: Taxon | null) => RankedTaxon[]>(() => []);
-
-	// The reference globe the PLACE_GLOBE placements are made against
-	// (EarthDNA SILVA 144, doi:10.5281/zenodo.23936866).
-	onMount(() => {
-		const globe = mountGlobe(root, {
-			base: '/earthdna/silva144',
-			release: '144',
-			runs: data.runs,
-			onTaxa: (t: Taxa) => (taxa = t),
-			onPick: (lineage: Taxon[]) => picker?.show(lineage),
-			onClear: () => picker?.show(null),
-			onAsvs: () => asvVersion++
-		});
-		view = globe.view;
-		return globe.destroy;
-	});
+	import { DATASETS } from '$lib/earthdna/datasets';
 </script>
 
 <svelte:head><title>EarthDNA · microscape.app</title></svelte:head>
 
-<div class="earthdna" bind:this={root}>
-	<div class="stage">
-		<canvas id="gl" aria-label="Globe of SSU rRNA sequences"></canvas>
-		<div id="loading">Loading 905,628 sequences…</div>
-		<div id="labels" aria-hidden="true"></div>
-		<div id="hint">Drag: rotate · Scroll or pinch: zoom<br />Double-click: centre · Esc: clear</div>
-	</div>
+<div class="space-y-6">
+	<header class="space-y-1">
+		<h1 class="text-2xl font-semibold">EarthDNA</h1>
+		<p class="text-sm text-slate-400 max-w-2xl">
+			Globes of microbial diversity: every point is a DNA sequence, placed by 5-mer composition with spherical t-SNE
+			(<a class="text-sky-400 hover:underline" href="https://github.com/rec3141/fastsne" target="_blank" rel="noopener noreferrer">fastsne</a>),
+			so nearby points are similar. Pick a globe.
+		</p>
+	</header>
 
-	<div class="leftcol">
-	<section id="head" class="card">
-		<div>
-			<h1>EarthDNA</h1>
-			<p class="sub">
-				<b id="nseq">905,628</b> SSU rRNA sequences from SILVA 144 NR99, placed by 5-mer composition with
-				spherical t-SNE (<a href="https://github.com/rec3141/fastsne" target="_blank" rel="noopener noreferrer">fastsne</a>).
-				Nearby sequences are similar.
-				{#if data.runs.length}
-					Dots with dark rims are ASVs from the {data.runs.length} amplicon {data.runs.length === 1 ? 'run' : 'runs'} you can see.
-				{:else if data.signedIn}
-					None of the runs you can see has globe placements yet.
-				{:else}
-					<a href="/auth/login">Sign in</a> to add your lab's amplicon runs.
-				{/if}
-			</p>
-		</div>
-		<div class="row">
-			<div class="seg" role="group" aria-label="Projection">
-				<button id="vGlobe" aria-pressed="true">Globe</button>
-				<button id="vFlat" aria-pressed="false">Equal-area</button>
-			</div>
-			<button class="btn" id="spin" aria-pressed="true">Pause spin</button>
-			<button class="btn" id="labelsBtn" aria-pressed="true">Labels</button>
-		</div>
-		<div class="row" hidden={!data.runs.length}>
-			<button class="btn" id="asvBtn" aria-pressed="false">Show amplicon runs</button>
-		</div>
-		<div class="row">
-			<div class="seg" role="group" aria-label="Layout">
-				<button id="lSculpt" aria-pressed="true">Sculpted by taxonomy</button>
-				<button id="lSim" aria-pressed="false">Similarity</button>
-			</div>
-		</div>
-		<div class="row">
-			<div class="seg" role="group" aria-label="Colour">
-				<button id="cTax" aria-pressed="true">Colour by taxon</button>
-				<button id="cFlag" aria-pressed="false">Label conflicts</button>
-			</div>
-		</div>
-		<div id="status">Drag to turn the globe. Click a point to pick out its genus.</div>
-		<div class="sliders">
-			<label class="slider" for="size">Point size <input id="size" type="range" min="0.5" max="6" step="0.1" value="1.6" /></label>
-			<label class="slider" for="alpha">Opacity <input id="alpha" type="range" min="0.05" max="1" step="0.01" value="0.75" /></label>
-		</div>
-	</section>
-
-	<section id="key" class="card" aria-label="Taxa">
-		<h2>Taxa</h2>
-		{#if taxa}
-			<TaxonPicker bind:this={picker} {taxa} {view} asvsShown={asvVersion > 0} version={asvVersion} />
-		{:else}
-			<p class="keywait">Loading the taxonomy…</p>
-		{/if}
-	</section>
-	</div>
-
-	<details id="runcard" class="card" open hidden>
-		<summary><span>Amplicon runs · click one, shift-click to add</span><span id="nruns"></span></summary>
-		<input id="runsearch" type="search" placeholder="Filter runs by name, lab or region · Enter shows only matches" aria-label="Filter amplicon runs" autocomplete="off" />
-		<ul id="runs"></ul>
-		<p id="runsnone" class="keywait" hidden>No run matches.</p>
-	</details>
-
-	<div id="tip" hidden></div>
+	<ul class="grid gap-4 sm:grid-cols-2">
+		{#each DATASETS as d (d.slug)}
+			<li>
+				<a
+					href="/earthdna/{d.slug}"
+					class="group flex h-full flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900/60 p-5 transition-colors hover:border-slate-600 hover:bg-slate-900"
+				>
+					<div class="flex items-baseline justify-between gap-3">
+						<h2 class="text-lg font-semibold text-slate-100">{d.name}</h2>
+						<span class="font-mono text-xs text-slate-400">{d.count.toLocaleString('en-US')} {d.unit[1]}</span>
+					</div>
+					<p class="text-sm text-slate-400">{d.blurb}</p>
+					<span class="mt-auto pt-2 text-sm text-sky-400 group-hover:underline">Open the {d.name} globe →</span>
+				</a>
+			</li>
+		{/each}
+	</ul>
 </div>
