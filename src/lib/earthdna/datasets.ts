@@ -12,6 +12,8 @@ export interface Dataset {
 	slug: string;
 	name: string;
 	base: string;
+	/** data build id: change it whenever the files under base are rebuilt, so browsers fetch them fresh */
+	version: string;
 	/** reference release amplicon placements must name; null = no runs on this globe */
 	release: string | null;
 	count: number;
@@ -28,6 +30,7 @@ export const DATASETS: Dataset[] = [
 		slug: 'silva',
 		name: 'SSU rRNA',
 		base: '/earthdna/silva144',
+		version: 'silva144-1',
 		release: '144',
 		count: 905628,
 		unit: ['sequence', 'sequences'],
@@ -39,6 +42,7 @@ export const DATASETS: Dataset[] = [
 		slug: 'gtdb',
 		name: 'Genomes',
 		base: '/earthdna/gtdb226',
+		version: 'gtdb226-ref6.5-2k-p2',
 		release: null,
 		count: 3886471,
 		unit: ['fragment', 'fragments'],

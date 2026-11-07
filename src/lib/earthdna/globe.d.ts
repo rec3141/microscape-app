@@ -16,6 +16,8 @@ export function mountGlobe(
 	root: HTMLElement,
 	opts: {
 		base: string;
+		/** data build id, added to data URLs as ?v= */
+		version?: string;
 		/** null for a globe no amplicon runs are placed against */
 		release: string | null;
 		runs: GlobeRun[];

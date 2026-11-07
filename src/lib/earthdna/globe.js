@@ -14,6 +14,7 @@ import { TAXON_SYNONYMS } from './taxa';
  *            uint16, or uint32 when globe.json says speciesBytes 4),
  *            ranks.bin (phylum, class, order, family uint16),
  *            layout_sculpt.bin, flags.bin
+ *   version  data build id, added to every data URL (?v=) so a rebuilt globe is never read from cache
  *   unit, unitOne  what a point is, for the page's text ('sequences', 'sequence')
  *   release  reference release the runs' placements must name
  *   runs     [{ id, slug, name, lab_name }] — each fetched from /earthdna/runs/<id>
@@ -52,7 +53,7 @@ const COLW = 2048;  // WebGL2 guarantees 2048-wide textures
 const norm = (s) => s.trim().toLowerCase().replace(/_/g, ' ');
 const css = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
 
-export function mountGlobe(root, { base, release, runs, unit = 'sequences', unitOne = 'sequence', onTaxa = () => {}, onPick = () => {}, onClear = () => {}, onAsvs = () => {} }) {
+export function mountGlobe(root, { base, version = '', release, runs, unit = 'sequences', unitOne = 'sequence', onTaxa = () => {}, onPick = () => {}, onClear = () => {}, onAsvs = () => {} }) {
 	const $ = (id) => root.querySelector('#' + id);
 	const canvas = $('gl');
 	const gl = canvas.getContext('webgl2', { antialias: true, premultipliedAlpha: false });
@@ -388,8 +389,10 @@ void main() {
 
 	// ---------- draw
 	let dirty = true, morph = null, current = 'sculpt', flagMode = false, flags = null, majg = null, flagBuf = null;
+	// the data version goes on every URL, so a rebuilt globe is fetched fresh whatever a browser has cached
+	const url = (name) => `${base}/${name}` + (version ? `?v=${encodeURIComponent(version)}` : '');
 	async function fetchBin(name) {
-		const r = await fetch(`${base}/${name}`);
+		const r = await fetch(url(name));
 		if (!r.ok) throw new Error(`${r.status} ${name}`);
 		return new Uint8Array(await r.arrayBuffer());
 	}
@@ -872,11 +875,11 @@ void main() {
 
 	// ---------- load
 	async function load() {
-		const mres = await fetch(`${base}/globe.json`);
+		const mres = await fetch(url('globe.json'));
 		if (!mres.ok) throw new Error('data files missing');
 		meta = await mres.json(); N = meta.n;
 		// positions + group (5 bytes per sequence), streamed for a progress count
-		const bres = await fetch(`${base}/pos.bin`);
+		const bres = await fetch(url('pos.bin'));
 		if (!bres.ok) throw new Error('data files missing');
 		const total = 5 * N, reader = bres.body.getReader(), parts = []; let got = 0;
 		for (;;) {
