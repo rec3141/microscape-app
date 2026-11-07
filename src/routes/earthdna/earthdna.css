@@ -20,6 +20,9 @@
 	color: var(--ink);
 }
 .earthdna .stage { position: absolute; inset: 0; }
+/* wide screens: the globe gets the space right of the left column (12 + 340 + 12 px), so the cards never cover it;
+   picking and labels follow, since globe.js measures the canvas itself */
+@media (min-width: 641px) { .earthdna .stage { left: 364px; } }
 .earthdna canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 .earthdna canvas#gl.dragging { cursor: grabbing; }
 .earthdna .card {

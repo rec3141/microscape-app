@@ -21,6 +21,14 @@
 					href="/earthdna/{d.slug}"
 					class="group flex h-full flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900/60 p-5 transition-colors hover:border-slate-600 hover:bg-slate-900"
 				>
+					<img
+						src={d.preview}
+						alt="The {d.name} globe, coloured by major group"
+						width="640"
+						height="640"
+						loading="lazy"
+						class="mx-auto mb-2 aspect-square w-full max-w-xs transition-transform duration-500 group-hover:scale-[1.03]"
+					/>
 					<div class="flex items-baseline justify-between gap-3">
 						<h2 class="text-lg font-semibold text-slate-100">{d.name}</h2>
 						<span class="font-mono text-xs text-slate-400">{d.count.toLocaleString('en-US')} {d.unit[1]}</span>

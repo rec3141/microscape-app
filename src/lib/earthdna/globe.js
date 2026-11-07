@@ -37,14 +37,17 @@ const REGION_NAMES = { '14964-22534': '16S V4', '13861-27653': '16S V4–V5', '4
 const regionName = (r) => REGION_NAMES[r] || `alignment columns ${r}`;
 const IDLE = 'Drag to turn the globe. Click a point to pick out its genus.';
 
-// danaSeq viz's palette (illumina_amplicon/viz/src/stores/data.svelte.js), so a rank list reads the same in both
+// danaSeq viz's palette (illumina_amplicon/viz/src/stores/data.svelte.js), so a rank list reads the same in both: a spiral
+// round the colour wheel (golden-angle hue steps, saturation and lightness cycling), one colour per taxon however many
 function generatePalette(n) {
 	const colors = [];
 	for (let i = 0; i < n; i++) colors.push(hsl((120 + i * 137.508) % 360, (55 + (i % 3) * 15) / 100, (45 + (i % 4) * 8) / 100));
 	return colors;
 }
-// colour slots: one per listed taxon, then unclassified (bright, so it stands out from dimmed points) and the rest
-const NONE = 65535, UNCLASSIFIED = 126, OTHER = 127, GREY = [0.42, 0.47, 0.55], BRIGHT = [0.96, 0.93, 0.82];
+// unclassified is drawn bright, so it stands out from dimmed points
+const NONE = 65535, BRIGHT = [0.96, 0.93, 0.82];
+// per-point colour slots index a colour texture COLW texels wide (no limit on how many taxa get their own colour)
+const COLW = 2048;  // WebGL2 guarantees 2048-wide textures
 // names compared between run taxonomies and the reference: case and underscores ignored
 const norm = (s) => s.trim().toLowerCase().replace(/_/g, ' ');
 const css = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
@@ -85,7 +88,7 @@ vec3 project(vec3 p) {
 }`;
 	const ptProg = prog(`#version 300 es
 in vec2 aLL; in vec2 aLL2; in uint aGrp; in uint aSel; in uint aFlag;
-uniform vec3 uCol[128]; uniform float uSize, uAlpha, uHasSel, uMix, uMode;
+uniform sampler2D uColTex; uniform float uSize, uAlpha, uHasSel, uMix, uMode;
 out vec4 vCol;
 ${PROJ}
 void main() {
@@ -101,7 +104,7 @@ void main() {
   bool on = aSel > 0u, flagged = uMode > 0.5 && aFlag > 0u;
   gl_Position = vec4(s.xy, on ? 0.0 : flagged ? 0.25 : 0.5, s.z > 0.5 ? 1.0 : 0.0);
   gl_PointSize = s.z > 0.5 ? uSize * ((on && uHasSel > 0.5) || flagged ? 1.6 : 1.0) : 0.0;
-  vec3 c = uCol[min(aGrp, 127u)];
+  vec3 c = texelFetch(uColTex, ivec2(int(aGrp % 2048u), int(aGrp / 2048u)), 0).rgb;
   if (uHasSel > 0.5 && !on) vCol = vec4(mix(c, vec3(0.45, 0.52, 0.62), 0.75), uAlpha * 0.18);
   else if (uMode > 0.5) vCol = aFlag == 2u ? vec4(0.96, 0.36, 0.48, 1.0) : aFlag == 1u ? vec4(0.97, 0.75, 0.30, 0.95) : vec4(0.40, 0.48, 0.60, uAlpha * 0.3);
   else vCol = vec4(c, uAlpha);
@@ -132,22 +135,14 @@ precision highp float;
 in vec2 vP; out vec4 o;
 uniform mat3 uRot; uniform float uFlat; uniform vec2 uScale;
 const float PI = 3.14159265;
-float grid(vec3 p) {
-  float lat = asin(clamp(p.z, -1.0, 1.0)), lon = atan(p.y, p.x);
-  vec2 g = vec2(lon, lat) / (PI / 6.0);
-  vec2 f = abs(fract(g - 0.5) - 0.5) / fwidth(g);
-  return 1.0 - min(min(f.x, f.y), 1.0);
-}
 void main() {
   vec2 s = vP / uScale;
   vec3 ocean = vec3(0.047, 0.094, 0.157), space = vec3(0.008, 0.024, 0.090);
   if (uFlat < 0.5) {
     float r2 = dot(s, s);
     if (r2 > 1.0) { float h = exp(-(sqrt(r2) - 1.0) * 28.0); o = vec4(mix(space, vec3(0.16, 0.30, 0.48), h * 0.55), 1.0); return; }
-    vec3 q = vec3(s, sqrt(1.0 - r2));
-    vec3 p = transpose(uRot) * q;
-    float shade = 0.55 + 0.45 * q.z;
-    o = vec4(ocean * shade + vec3(0.10, 0.16, 0.24) * grid(p) * 0.6, 1.0);
+    float shade = 0.55 + 0.45 * sqrt(1.0 - r2);
+    o = vec4(ocean * shade, 1.0);
   } else {
     vec2 m = s * 2.0;
     float st = m.y / 1.4142136;
@@ -155,18 +150,26 @@ void main() {
     float t = asin(st);
     float lam = m.x / (0.9003163 * cos(t));
     if (abs(lam) > PI) { o = vec4(space, 1.0); return; }
-    float phi = asin(clamp((2.0 * t + sin(2.0 * t)) / PI, -1.0, 1.0));
-    vec3 q = vec3(cos(phi) * sin(lam), sin(phi), cos(phi) * cos(lam));
-    vec3 p = transpose(uRot) * q;
-    o = vec4(ocean + vec3(0.10, 0.16, 0.24) * grid(p) * 0.6, 1.0);
+    o = vec4(ocean, 1.0);
   }
 }`);
 
 	// ---------- state
 	const R0 = [0, 1, 0, 0, 0, 1, 1, 0, 0];  // world -> view: lon 0 / lat 0 faces the viewer, north up
 	let rot = R0.slice(), zoom = 1, flat = false, spin = !matchMedia('(prefers-reduced-motion: reduce)').matches;
-	let N = 0, meta = null, grp, gen, lin, spc, xyz, cellStart, cellIdx, selBuf, sel, hasSel = false, cols = [];
+	let N = 0, meta = null, grp, gen, lin, spc, xyz, cellStart, cellIdx, selBuf, sel, hasSel = false;
 	let domIx = null, rankArr = null, rankNames = null, cidx = null, cidxBuf = null, asvFilter = '';
+	// one RGBA texel per colour slot, COLW wide; rows grow with the number of slots (texel past the end reads black)
+	const colTex = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_2D, colTex);
+	for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+	function setColours(rgb) {
+		const n = rgb.length / 3 + 1, h = Math.ceil(n / COLW), px = new Uint8Array(4 * COLW * h);
+		for (let i = 0; i < rgb.length / 3; i++) for (let j = 0; j < 3; j++) px[4 * i + j] = Math.round(255 * rgb[3 * i + j]);
+		gl.bindTexture(gl.TEXTURE_2D, colTex);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, COLW, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+		dirty = true;
+	}
 	const mul = (a, b) => { const r = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) r[3 * i + j] = a[3 * i] * b[j] + a[3 * i + 1] * b[3 + j] + a[3 * i + 2] * b[6 + j]; return r; };
 	const rotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, s, 0, 1, 0, -s, 0, c]; };
 	const rotX = (b) => { const c = Math.cos(b), s = Math.sin(b); return [1, 0, 0, 0, c, -s, 0, s, c]; };
@@ -251,9 +254,9 @@ void main() {
 		bindLayouts(layouts.similarity, layouts.similarity);
 		gl.bindVertexArray(ptVao);
 		let loc;
-		cidx = grp.slice();  // colour slot per reference; view() rewrites it
+		cidx = Uint32Array.from(grp);  // colour slot per reference; view() rewrites it
 		cidxBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, cidxBuf); gl.bufferData(gl.ARRAY_BUFFER, cidx, gl.DYNAMIC_DRAW);
-		loc = gl.getAttribLocation(ptProg, 'aGrp'); gl.enableVertexAttribArray(loc); gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
+		loc = gl.getAttribLocation(ptProg, 'aGrp'); gl.enableVertexAttribArray(loc); gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_INT, 0, 0);
 		selBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, selBuf); gl.bufferData(gl.ARRAY_BUFFER, sel, gl.DYNAMIC_DRAW);
 		loc = gl.getAttribLocation(ptProg, 'aSel'); gl.enableVertexAttribArray(loc); gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
 		flagBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, flagBuf); gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(N), gl.STATIC_DRAW);
@@ -446,7 +449,8 @@ void main() {
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uHasSel'), hasSel ? 1 : 0);
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uMode'), flagMode ? 1 : 0);
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uMix'), morph ? morph.t : 0);
-		gl.uniform3fv(gl.getUniformLocation(ptProg, 'uCol[0]'), cols);
+		gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, colTex);
+		gl.uniform1i(gl.getUniformLocation(ptProg, 'uColTex'), 0);
 		gl.drawArrays(gl.POINTS, 0, N);
 		if (asvShown()) {
 			gl.disable(gl.DEPTH_TEST);
@@ -644,16 +648,16 @@ void main() {
 		hasSel = !!filter && members < N;
 		const ranked = [...counts].sort((a, b) => (a[0] === NONE) - (b[0] === NONE) || b[1] - a[1])
 			.map(([code, count]) => ({ code, count, name: code === NONE ? 'unclassified' : rankNames[level][code] }));
-		const palette = generatePalette(ranked.length), slot = new Map();
-		cols = new Float32Array(128 * 3);
+		// every listed taxon gets its own slot and colour; unclassified is the bright one
+		const palette = generatePalette(ranked.length), slot = new Map(), cols = new Float32Array(3 * Math.max(1, ranked.length));
 		ranked.forEach((t, k) => {
-			const c = t.code === NONE ? BRIGHT : k >= UNCLASSIFIED ? GREY : palette[k];
+			const c = t.code === NONE ? BRIGHT : palette[k];
 			t.color = css(c);
-			if (t.code !== NONE && k < UNCLASSIFIED) { slot.set(t.code, k); cols.set(c, 3 * k); }
+			slot.set(t.code, k); cols.set(c, 3 * k);
 		});
-		cols.set(BRIGHT, 3 * UNCLASSIFIED); cols.set(GREY, 3 * OTHER);
-		slot.set(NONE, UNCLASSIFIED);
-		for (let i = 0; i < N; i++) { const k = slot.get(rankCode(level, i)); cidx[i] = k === undefined ? OTHER : k; }
+		setColours(cols);
+		const outside = ranked.length;  // points outside the filter are dimmed; any colour will do
+		for (let i = 0; i < N; i++) { const k = slot.get(rankCode(level, i)); cidx[i] = k === undefined ? outside : k; }
 		gl.bindBuffer(gl.ARRAY_BUFFER, cidxBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, cidx);
 		gl.bindBuffer(gl.ARRAY_BUFFER, selBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, sel);
 		// ASVs: kept when their lineage names the filter taxon; counted against each listed taxon by name
@@ -901,11 +905,9 @@ void main() {
 		const ng = meta.groups.length;
 		const doms = [...new Set(meta.groups.map((g) => g.split(' · ')[0]))];
 		domIx = meta.groups.map((g) => doms.indexOf(g.split(' · ')[0]));
-		cols = new Float32Array(128 * 3);
-		for (let g = 0; g < 128; g++) {
-			const c = g < PALETTE.length ? hex(PALETTE[g]) : g < ng ? hsl((g * 137.5) % 360, 0.32, 0.56) : [0.5, 0.55, 0.62];
-			cols.set(c, 3 * g);
-		}
+		const gcols = new Float32Array(3 * ng);
+		for (let g = 0; g < ng; g++) gcols.set(g < PALETTE.length ? hex(PALETTE[g]) : hsl((g * 137.5) % 360, 0.32, 0.56), 3 * g);
+		setColours(gcols);
 		upload(ab);
 		// the sculpted layout opens the page; the similarity map stands in if it did not load
 		const sb = await sculptReq;
@@ -918,7 +920,7 @@ void main() {
 		buildIndex(layouts[current].lon, layouts[current].lat);
 		$('nseq').textContent = N.toLocaleString();
 		$('loading').hidden = true; dirty = true;
-		const asvs = runs.length ? toggleAsv() : null;
+		// amplicon runs load and show only when asked (Show amplicon runs)
 		// rank codes for the picker: domain (from the groups), phylum..family, genus, species
 		const rk = await fetchBin('ranks.bin');
 		if (!alive) return;
@@ -928,7 +930,6 @@ void main() {
 		rankNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
 		namesIndex();
 		onTaxa({ levels: R.levels, names: rankNames, find, count, describe });
-		await asvs;
 	}
 	resize(); centreOn(0, 0.12); raf = requestAnimationFrame(frame);
 	load().catch((e) => { if (alive) $('loading').textContent = `The ${unitOne} data did not load (${e.message}). Reload the page to try again.`; });

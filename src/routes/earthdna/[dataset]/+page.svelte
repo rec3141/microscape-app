@@ -71,7 +71,7 @@
 				{#if !ds.release}
 					<!-- no amplicon runs on this globe -->
 				{:else if data.runs.length}
-					Dots with dark rims are ASVs from the {data.runs.length} amplicon {data.runs.length === 1 ? 'run' : 'runs'} you can see.
+					<i>Show amplicon runs</i> adds the ASVs of the {data.runs.length} amplicon {data.runs.length === 1 ? 'run' : 'runs'} you can see.
 				{:else if data.signedIn}
 					None of the runs you can see has globe placements yet.
 				{:else}
