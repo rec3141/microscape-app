@@ -351,13 +351,13 @@ void main() {
 		if (!labelSets.length || morph || !labelsOn) { for (const el of labelPool) el.hidden = true; return; }
 		const w = canvas.clientWidth, h = canvas.clientHeight, sc = scale();
 		const pxR = sc[0] * w / 2 * (flat ? 0.9 : 1), minDim = Math.min(w, h);
-		const taken = [];
+		const taken = [], GAPX = 22, GAPY = 12;
 		let used = 0;
 		const fits = (x0, y0, x1, y1) => { for (const r of taken) if (x0 < r[2] && x1 > r[0] && y0 < r[3] && y1 > r[1]) return false; return true; };
 		for (const set of labelSets) {
 			let shownHere = 0;
 			for (const L of set) {
-				if (used >= 160 || shownHere >= 60) break;
+				if (used >= 55 || shownHere >= 20) break;  // about a third of the earlier 160 / 60
 				const rpx = L.spread * pxR;
 				if (rpx < 26 || rpx > 0.9 * minDim) continue;
 				const p = L.p, q = [0, 1, 2].map((j) => rot[3 * j] * p[0] + rot[3 * j + 1] * p[1] + rot[3 * j + 2] * p[2]);
@@ -372,8 +372,9 @@ void main() {
 				const fs = L.cls === 'L0' ? 17 : L.cls === 'L1' ? 13.6 : L.cls === 'L4' ? 11.8 : 12.5, cw = L.cls === 'L0' ? fs * 0.95 : fs * 0.56;
 				const tw = L.text.length * cw, th = fs * 1.3;
 				const x0 = sx - tw / 2, y0 = sy - th / 2;
-				if (x0 < 4 || y0 < 4 || x0 + tw > w - 4 || y0 + th > h - 4 || !fits(x0 - 4, y0 - 2, x0 + tw + 4, y0 + th + 2)) continue;
-				taken.push([x0 - 4, y0 - 2, x0 + tw + 4, y0 + th + 2]);
+				// each label keeps a clear margin (GAPX, GAPY) around it, so the ones shown spread over the globe
+				if (x0 < 4 || y0 < 4 || x0 + tw > w - 4 || y0 + th > h - 4 || !fits(x0 - GAPX, y0 - GAPY, x0 + tw + GAPX, y0 + th + GAPY)) continue;
+				taken.push([x0 - GAPX, y0 - GAPY, x0 + tw + GAPX, y0 + th + GAPY]);
 				let el = labelPool[used];
 				if (!el) { el = document.createElement('span'); box.appendChild(el); labelPool.push(el); }
 				if (el.textContent !== L.text) el.textContent = L.text;
