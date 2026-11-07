@@ -31,6 +31,7 @@
 	onMount(() => {
 		const globe = mountGlobe(root, {
 			base: data.dataset.base,
+			version: data.dataset.version,
 			release: data.dataset.release,
 			runs: data.runs,
 			unit: data.dataset.unit[1],
