@@ -11,3 +11,4 @@ data/*.db-shm
 CLAUDE.local.md
 site
 docs/changelog.md
+static/earthdna/gtdb226
