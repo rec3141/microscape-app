@@ -23,6 +23,7 @@ import { TAXON_SYNONYMS } from './taxa';
  *   onPick   called with a clicked reference's lineage [{ rank, code, name }]
  *   onClear  called on Escape
  *   onAsvs   called once the runs' ASVs are in (the picker's ASV counts change)
+ *   onRefresh  called when the picker should ask view() again (the highlight changed)
  *
  * view(level, filter) colours the references by their taxa at rank `level`
  * among those inside `filter` ({ rank, code } or null; outside it they dim),
@@ -53,7 +54,7 @@ const COLW = 2048;  // WebGL2 guarantees 2048-wide textures
 const norm = (s) => s.trim().toLowerCase().replace(/_/g, ' ');
 const css = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
 
-export function mountGlobe(root, { base, version = '', release, runs, unit = 'sequences', unitOne = 'sequence', onTaxa = () => {}, onPick = () => {}, onClear = () => {}, onAsvs = () => {} }) {
+export function mountGlobe(root, { base, version = '', release, runs, unit = 'sequences', unitOne = 'sequence', onTaxa = () => {}, onPick = () => {}, onClear = () => {}, onAsvs = () => {}, onRefresh = () => {} }) {
 	const $ = (id) => root.querySelector('#' + id);
 	const canvas = $('gl');
 	const gl = canvas.getContext('webgl2', { antialias: true, premultipliedAlpha: false });
@@ -159,6 +160,9 @@ void main() {
 	const R0 = [0, 1, 0, 0, 0, 1, 1, 0, 0];  // world -> view: lon 0 / lat 0 faces the viewer, north up
 	let rot = R0.slice(), zoom = 1, flat = false, spin = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 	let N = 0, meta = null, grp, gen, lin, spc, xyz, cellStart, cellIdx, selBuf, sel, hasSel = false;
+	// genome traits (globe.json traits; GTDB: cultured, named, type_material): one byte per point, bit k = trait k
+	let traits = null, trait = -1;
+	const TRAIT_LABEL = { cultured: 'Cultured isolates', named: 'Named species', type_material: 'Type material' };
 	let domIx = null, rankArr = null, rankNames = null, cidx = null, cidxBuf = null, asvFilter = '';
 	// one RGBA texel per colour slot, COLW wide; rows grow with the number of slots (texel past the end reads black)
 	const colTex = gl.createTexture();
@@ -642,14 +646,14 @@ void main() {
 		const counts = new Map();
 		let members = 0;
 		for (let i = 0; i < N; i++) {
-			const inside = !filter || rankCode(filter.rank, i) === filter.code;
+			const inside = (!filter || rankCode(filter.rank, i) === filter.code) && (trait < 0 || (traits[i] >> trait) & 1);
 			sel[i] = inside ? 1 : 0;
 			if (!inside) continue;
 			members++;
 			const c = rankCode(level, i);
 			counts.set(c, (counts.get(c) || 0) + 1);
 		}
-		hasSel = !!filter && members < N;
+		hasSel = (!!filter || trait >= 0) && members < N;
 		const ranked = [...counts].sort((a, b) => (a[0] === NONE) - (b[0] === NONE) || b[1] - a[1])
 			.map(([code, count]) => ({ code, count, name: code === NONE ? 'unclassified' : rankNames[level][code] }));
 		// every listed taxon gets its own slot and colour; unclassified is the bright one
@@ -676,7 +680,8 @@ void main() {
 			}
 			syncAsvOn();
 		}
-		$('status').textContent = filter ? `${rankNames[filter.rank][filter.code]} · ${members.toLocaleString()} ${unit}` : IDLE;
+		const what = [filter ? rankNames[filter.rank][filter.code] : '', trait >= 0 ? TRAIT_LABEL[meta.traits[trait]] || meta.traits[trait] : ''].filter(Boolean).join(' · ');
+		$('status').textContent = what ? `${what} · ${members.toLocaleString()} ${unit}` : IDLE;
 		dirty = true;
 		return ranked;
 	}
@@ -932,6 +937,20 @@ void main() {
 		rankArr = [0, 1, 2, 3].map((k) => new Uint16Array(rk.buffer, 2 * k * N, N));
 		const R = meta.ranks;
 		rankNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
+		if (meta.traits?.length) {
+			// optional: a globe without traits.bin just has no Highlight control
+			const tb = await fetchBin('traits.bin').catch(() => null);
+			if (tb && tb.length === N) {
+				traits = tb;
+				const selEl = $('trait');
+				for (const [k, name] of meta.traits.entries()) {
+					let n = 0; for (let i = 0; i < N; i++) n += (tb[i] >> k) & 1;
+					selEl.add(new Option(`${TRAIT_LABEL[name] || name} (${n.toLocaleString()})`, String(k)));
+				}
+				$('traitRow').hidden = false;
+				on(selEl, 'change', () => { trait = +selEl.value; onRefresh(); });
+			}
+		}
 		view(Math.max(0, R.levels.indexOf('class')), null);
 		$('nseq').textContent = N.toLocaleString();
 		$('loading').hidden = true; dirty = true;

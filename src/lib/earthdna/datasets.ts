@@ -42,11 +42,11 @@ export const DATASETS: Dataset[] = [
 		slug: 'gtdb',
 		name: 'Genomes',
 		base: '/earthdna/gtdb226',
-		version: 'gtdb226-ref6.5-2k-p2',
+		version: 'gtdb226-ref30-2k-p2c4-traits',
 		release: null,
 		count: 3886471,
 		unit: ['fragment', 'fragments'],
-		blurb: '10 kb fragments of all 143k GTDB r226 species-representative genomes, bacteria and archaea.',
+		blurb: '10 kb fragments of all 143k GTDB r226 species-representative genomes, bacteria and archaea; highlight cultured isolates, named species or type material.',
 		source: '10 kb fragments of GTDB r226 species-representative genomes',
 		preview: '/earthdna/previews/gtdb.webp'
 	}
