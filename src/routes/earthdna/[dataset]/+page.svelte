@@ -22,6 +22,7 @@
 	let root: HTMLElement;
 	let taxa = $state<Taxa | null>(null);
 	let asvVersion = $state(0);
+	let refreshVersion = $state(0); // the highlight changed: the picker asks view() again
 	let picker = $state<ReturnType<typeof TaxonPicker> | null>(null);
 	let view = $state<(level: number, filter: Taxon | null) => RankedTaxon[]>(() => []);
 
@@ -39,7 +40,8 @@
 			onTaxa: (t: Taxa) => (taxa = t),
 			onPick: (lineage: Taxon[]) => picker?.show(lineage),
 			onClear: () => picker?.show(null),
-			onAsvs: () => asvVersion++
+			onAsvs: () => asvVersion++,
+			onRefresh: () => refreshVersion++
 		});
 		view = globe.view;
 		return globe.destroy;
@@ -103,6 +105,11 @@
 				<button id="cFlag" aria-pressed="false">Label conflicts</button>
 			</div>
 		</div>
+		<div class="row" id="traitRow" hidden>
+			<label class="rankpick highlight" for="trait">Highlight
+				<select id="trait"><option value="-1">All genomes</option></select>
+			</label>
+		</div>
 		<div id="status">Drag to turn the globe. Click a point to pick out its genus.</div>
 		<div class="sliders">
 			<label class="slider" for="size">Point size <input id="size" type="range" min="0.5" max="6" step="0.1" value="0.5" /></label>
@@ -113,7 +120,7 @@
 	<section id="key" class="card" aria-label="Taxa">
 		<h2>Taxa</h2>
 		{#if taxa}
-			<TaxonPicker bind:this={picker} {taxa} {view} asvsShown={asvVersion > 0} version={asvVersion} />
+			<TaxonPicker bind:this={picker} {taxa} {view} asvsShown={asvVersion > 0} version={asvVersion + refreshVersion} />
 		{:else}
 			<p class="keywait">Loading the taxonomy…</p>
 		{/if}

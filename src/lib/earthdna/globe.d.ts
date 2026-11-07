@@ -28,5 +28,6 @@ export function mountGlobe(
 		onPick?: (lineage: Taxon[]) => void;
 		onClear?: () => void;
 		onAsvs?: () => void;
+		onRefresh?: () => void;
 	}
 ): Globe;
