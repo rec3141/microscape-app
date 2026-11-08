@@ -131,3 +131,4 @@
 .earthdna .ovtitle { font-size: 0.75rem; color: var(--muted); margin-right: 2px; }
 .earthdna .btn.ov { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; padding: 4px 8px; }
 .earthdna .btn.ov .sw { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.earthdna .rowlabel { font-size: 0.75rem; color: var(--muted); }
