@@ -105,6 +105,7 @@
 				<button id="cFlag" aria-pressed="false">Label conflicts</button>
 			</div>
 		</div>
+		<div class="row ovrow" id="ovRow" hidden><span class="ovtitle">Reads</span></div>
 		<div class="row" id="traitRow" hidden>
 			<label class="rankpick highlight" for="trait">Highlight
 				<select id="trait"><option value="-1">All genomes</option></select>

@@ -78,6 +78,11 @@ export function mountGlobe(root, { base, version = '', release, runs, unit = 'se
 	const PROJ = `
 uniform mat3 uRot; uniform float uFlat; uniform vec2 uScale;
 const float PI = 3.14159265;
+// how squarely a point faces the viewer on the globe (1 centre, 0 limb; 1 everywhere on the flat map): points are
+// shaded and shrunk by it like the ocean behind them, so the dots read as part of the sphere, not a flat sticker
+float facing(vec3 p) { return uFlat < 0.5 ? clamp((uRot * p).z, 0.0, 1.0) : 1.0; }
+float shade(vec3 p) { return 0.5 + 0.5 * facing(p); }
+float shrink(vec3 p) { return 0.45 + 0.55 * sqrt(facing(p)); }
 // world unit vector -> clip xy, visible flag
 vec3 project(vec3 p) {
   vec3 q = uRot * p;
@@ -105,8 +110,8 @@ void main() {
   vec3 s = project(p);
   bool on = aSel > 0u, flagged = uMode > 0.5 && aFlag > 0u;
   gl_Position = vec4(s.xy, on ? 0.0 : flagged ? 0.25 : 0.5, s.z > 0.5 ? 1.0 : 0.0);
-  gl_PointSize = s.z > 0.5 ? uSize * ((on && uHasSel > 0.5) || flagged ? 1.6 : 1.0) : 0.0;
-  vec3 c = texelFetch(uColTex, ivec2(int(aGrp % 2048u), int(aGrp / 2048u)), 0).rgb;
+  gl_PointSize = s.z > 0.5 ? uSize * shrink(p) * ((on && uHasSel > 0.5) || flagged ? 1.6 : 1.0) : 0.0;
+  vec3 c = texelFetch(uColTex, ivec2(int(aGrp % 2048u), int(aGrp / 2048u)), 0).rgb * shade(p);
   if (uHasSel > 0.5 && !on) vCol = vec4(mix(c, vec3(0.45, 0.52, 0.62), 0.75), uAlpha * 0.18);
   else if (uMode > 0.5) vCol = aFlag == 2u ? vec4(0.96, 0.36, 0.48, 1.0) : aFlag == 1u ? vec4(0.97, 0.75, 0.30, 0.95) : vec4(0.40, 0.48, 0.60, uAlpha * 0.3);
   else vCol = vec4(c, uAlpha);
@@ -121,15 +126,31 @@ out vec4 vCol;
 ${PROJ}
 void main() {
   float lon = aLL.x * 2.0 * PI - PI, lat = aLL.y * PI - 0.5 * PI;
-  vec3 s = project(vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat)));
+  vec3 p = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat)), s = project(p);
   bool vis = s.z > 0.5 && aOn > 0u;
   gl_Position = vec4(s.xy, 0.0, vis ? 1.0 : 0.0);
-  gl_PointSize = vis ? uSize * (0.3 + float(aSz) / 255.0 * 29.7) : 0.0;  // 100x from the rarest ASV to the most read
-  vCol = vec4(aCol, 0.95);
+  gl_PointSize = vis ? uSize * shrink(p) * (0.3 + float(aSz) / 255.0 * 29.7) : 0.0;  // 100x from the rarest ASV to the most read
+  vCol = vec4(aCol * shade(p), 0.95);
 }`, `#version 300 es
 precision mediump float;
 in vec4 vCol; out vec4 o;
 void main() { vec2 d = gl_PointCoord - 0.5; float r = dot(d, d); if (r > 0.25) discard; o = r > 0.15 ? vec4(vCol.rgb * 0.3, 0.9) : vCol; }`);
+	// overlays: placed sequences (e.g. a run's nanopore reads), one flat colour each
+	const ovProg = prog(`#version 300 es
+in vec2 aLL;
+uniform vec3 uCol; uniform float uSize, uAlpha;
+out vec4 vCol;
+${PROJ}
+void main() {
+  float lon = aLL.x * 2.0 * PI - PI, lat = aLL.y * PI - 0.5 * PI;
+  vec3 p = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat)), s = project(p);
+  gl_Position = vec4(s.xy, 0.0, s.z > 0.5 ? 1.0 : 0.0);
+  gl_PointSize = s.z > 0.5 ? uSize * shrink(p) : 0.0;
+  vCol = vec4(uCol * shade(p), uAlpha);
+}`, `#version 300 es
+precision mediump float;
+in vec4 vCol; out vec4 o;
+void main() { vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; o = vCol; }`);
 	const bgProg = prog(`#version 300 es
 in vec2 aP; out vec2 vP;
 void main() { vP = aP; gl_Position = vec4(aP, 0.99, 1.0); }`, `#version 300 es
@@ -453,13 +474,29 @@ void main() {
 		gl.uniform2f(gl.getUniformLocation(ptProg, 'uScale'), sc[0], sc[1]);
 		const dpr = canvas.width / Math.max(1, canvas.clientWidth);
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uSize'), +$('size').value * dpr * Math.pow(zoom, 0.45));
-		gl.uniform1f(gl.getUniformLocation(ptProg, 'uAlpha'), +$('alpha').value * (asvShown() ? 0.28 : 1));
+		gl.uniform1f(gl.getUniformLocation(ptProg, 'uAlpha'), +$('alpha').value * (asvShown() ? 0.28 : ovShown() ? 0.35 : 1));
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uHasSel'), hasSel ? 1 : 0);
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uMode'), flagMode ? 1 : 0);
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uMix'), morph ? morph.t : 0);
 		gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, colTex);
 		gl.uniform1i(gl.getUniformLocation(ptProg, 'uColTex'), 0);
 		gl.drawArrays(gl.POINTS, 0, N);
+		if (ovShown()) {
+			gl.disable(gl.DEPTH_TEST);
+			gl.useProgram(ovProg);
+			gl.uniformMatrix3fv(gl.getUniformLocation(ovProg, 'uRot'), true, rot);
+			gl.uniform1f(gl.getUniformLocation(ovProg, 'uFlat'), flat ? 1 : 0);
+			gl.uniform2f(gl.getUniformLocation(ovProg, 'uScale'), sc[0], sc[1]);
+			gl.uniform1f(gl.getUniformLocation(ovProg, 'uSize'), +$('size').value * dpr * Math.pow(zoom, 0.45));
+			gl.uniform1f(gl.getUniformLocation(ovProg, 'uAlpha'), Math.min(1, +$('alpha').value * 0.8));
+			for (const o of overlays) {
+				const v = o.on && o.vao && o.vao[current];
+				if (!v) continue;
+				gl.uniform3fv(gl.getUniformLocation(ovProg, 'uCol'), hex(o.colour));
+				gl.bindVertexArray(v); gl.drawArrays(gl.POINTS, 0, o.n);
+			}
+			gl.enable(gl.DEPTH_TEST);
+		}
 		if (asvShown()) {
 			gl.disable(gl.DEPTH_TEST);
 			gl.useProgram(asvProg); gl.bindVertexArray(asv.vao);
@@ -885,6 +922,61 @@ void main() {
 		dirty = true;
 	}
 
+	// ---------- overlays (overlays.json beside the globe data, pipeline/pack_overlay.py): toggled per overlay,
+	// fetched on first use; positions go through each layout's equator rotation like the references
+	let overlays = [];
+	const ovShown = () => !morph && overlays.some((o) => o.on && o.vao);
+	function overlayVaos(o, raw) {
+		const n = o.n, vao = {};
+		o.layouts.forEach((name, k) => {
+			const L = layouts[name]; if (!L) return;
+			const lo = new Uint16Array(raw.buffer, raw.byteOffset + 4 * k * n, n), la = new Uint16Array(raw.buffer, raw.byteOffset + (4 * k + 2) * n, n);
+			const W = L.W, ll = new Uint16Array(2 * n), K = 2 * Math.PI / 65535;
+			for (let i = 0; i < n; i++) {
+				const a = lo[i] * K - Math.PI, b = la[i] * Math.PI / 65535 - Math.PI / 2, cb = Math.cos(b);
+				const x = cb * Math.cos(a), y = cb * Math.sin(a), z = Math.sin(b);
+				const X = W[0] * x + W[1] * y + W[2] * z, Y = W[3] * x + W[4] * y + W[5] * z, Z = W[6] * x + W[7] * y + W[8] * z;
+				ll[2 * i] = Math.round((Math.atan2(Y, X) + Math.PI) / (2 * Math.PI) * 65535);
+				ll[2 * i + 1] = Math.round((Math.asin(Math.max(-1, Math.min(1, Z))) + Math.PI / 2) / Math.PI * 65535);
+			}
+			const v = gl.createVertexArray(); gl.bindVertexArray(v);
+			const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, ll, gl.STATIC_DRAW);
+			const loc = gl.getAttribLocation(ovProg, 'aLL'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.UNSIGNED_SHORT, true, 0, 0);
+			vao[name] = v;
+		});
+		return vao;
+	}
+	async function toggleOverlay(o, btn) {
+		if (!o.vao) {
+			btn.disabled = true; $('status').textContent = `Loading ${o.label}…`;
+			try { o.vao = overlayVaos(o, await fetchBin(o.file)); } catch { $('status').textContent = `${o.label} did not load. Try again.`; btn.disabled = false; return; }
+			btn.disabled = false;
+		}
+		o.on = !o.on; btn.setAttribute('aria-pressed', o.on ? 'true' : 'false');
+		const on = overlays.filter((x) => x.on);
+		$('status').textContent = on.length
+			? `${on.reduce((t, x) => t + x.n, 0).toLocaleString()} reads placed on the map (${on.map((x) => x.label).join(', ')})`
+			: IDLE;
+		dirty = true;
+	}
+	async function loadOverlays() {
+		let list;
+		try { const r = await fetch(url('overlays.json')); if (!r.ok) return; list = await r.json(); } catch { return; }
+		if (!alive || !Array.isArray(list) || !list.length) return;
+		overlays = list.map((o) => ({ ...o, on: false, vao: null }));
+		const row = $('ovRow');
+		for (const o of overlays) {
+			const b = document.createElement('button');
+			b.className = 'btn toggle ov'; b.setAttribute('aria-pressed', 'false');
+			const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = o.colour;
+			b.append(sw, document.createTextNode(o.label));
+			b.title = `${o.n.toLocaleString()} reads`;
+			on(b, 'click', () => toggleOverlay(o, b));
+			row.appendChild(b);
+		}
+		row.hidden = false;
+	}
+
 	// ---------- load
 	async function load() {
 		const mres = await fetch(url('globe.json'));
@@ -964,6 +1056,7 @@ void main() {
 		// amplicon runs load and show only when asked (Show amplicon runs)
 		namesIndex();
 		onTaxa({ levels: R.levels, names: rankNames, find, count, describe });
+		loadOverlays();
 	}
 	resize(); centreOn(0, 0.12); raf = requestAnimationFrame(frame);
 	load().catch((e) => { if (alive) $('loading').textContent = `The ${unitOne} data did not load (${e.message}). Reload the page to try again.`; });
