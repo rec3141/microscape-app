@@ -573,13 +573,18 @@ void main() {
 			}
 			const i = nearest(cx, cy);
 			if (i < 0) { tip.hidden = true; return; }
+			// two lines: genus + species, then the taxon at the rank the globe is coloured by (family when that rank is
+			// genus or species, which the first line already names)
 			const g = meta.genera[gen[i]], sp = meta.species[spc[i]], gr = meta.groups[grp[i]] || 'other';
-			const ln = meta.lineages[lin[i]], lr = { f: 'family', o: 'order', c: 'class', p: 'phylum' }[meta.lineageRank[lin[i]]];
-			tip.innerHTML = '<div class="g"></div><div></div><div class="m"></div>';
-			tip.children[0].textContent = sp || (g ? g + ' sp.' : 'Unclassified genus');
-			tip.children[1].textContent = ln ? `${lr} ${ln}` : '';
-			tip.children[2].textContent = gr.replace(' · ', ' › ');
-			if (flags && flags[i] > 0) {
+			tip.innerHTML = '<div class="g"></div><div class="m"></div>';
+			tip.children[0].textContent = sp || (g ? g + ' sp.' : 'Unclassified');
+			let second = gr.replace(' · ', ' › ');
+			if (rankArr) {
+				const r = curLevel >= 5 ? 4 : curLevel, c = rankCode(r, i), lv = meta.ranks.levels[r];
+				second = `${lv.charAt(0).toUpperCase()}${lv.slice(1)} · ${c !== NONE && rankNames[r][c] != null ? rankNames[r][c] : 'unclassified'}`;
+			}
+			tip.children[1].textContent = second;
+			if (flagMode && flags && flags[i] > 0) {
 				const d = document.createElement('div'); d.className = 'w';
 				d.textContent = `Labelled ${gr.split(' · ')[1] || gr}, but its neighbours are ${(meta.groups[majg[i]] || 'other').replace(' · ', ' › ')}`;
 				tip.appendChild(d);
@@ -641,8 +646,10 @@ void main() {
 		if (!u.length) return '';
 		return `${meta.ranks.levels[u[0].rank]} · ${u[0].count.toLocaleString()}` + (u.length > 1 ? ` (+${u.length - 1} more)` : '');
 	}
+	let curLevel = 2;  // the rank the globe is coloured by (view() sets it); the tooltip names the point's taxon there
 	function view(level, filter) {
 		if (!rankArr) return [];
+		curLevel = level;
 		const counts = new Map();
 		let members = 0;
 		for (let i = 0; i < N; i++) {
