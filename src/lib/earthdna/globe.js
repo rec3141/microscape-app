@@ -182,8 +182,11 @@ void main() {
 	let rot = R0.slice(), zoom = 1, flat = false, spin = false;  // spin starts off; the Spin toggle turns it on
 	let N = 0, meta = null, grp, gen, lin, spc, xyz, cellStart, cellIdx, selBuf, sel, hasSel = false;
 	// genome traits (globe.json traits; GTDB: cultured, named, type_material): one byte per point, bit k = trait k
-	let traits = null, trait = -1;
+	// trait = bit highlighted (-1 none); traitNeg highlights the points without it (uncultured, unnamed)
+	let traits = null, trait = -1, traitNeg = false;
 	const TRAIT_LABEL = { cultured: 'Cultured isolates', named: 'Named species', type_material: 'Type material' };
+	const TRAIT_NOT = { cultured: 'Uncultured (MAGs, single cells)', named: 'Unnamed species' };
+	const traitLabel = () => trait < 0 ? '' : (traitNeg ? TRAIT_NOT : TRAIT_LABEL)[meta.traits[trait]] || (traitNeg ? 'not ' : '') + meta.traits[trait];
 	let domIx = null, rankArr = null, rankNames = null, cidx = null, cidxBuf = null, asvFilter = '';
 	// one RGBA texel per colour slot, COLW wide; rows grow with the number of slots (texel past the end reads black)
 	const colTex = gl.createTexture();
@@ -690,7 +693,7 @@ void main() {
 		const counts = new Map();
 		let members = 0;
 		for (let i = 0; i < N; i++) {
-			const inside = (!filter || rankCode(filter.rank, i) === filter.code) && (trait < 0 || (traits[i] >> trait) & 1);
+			const inside = (!filter || rankCode(filter.rank, i) === filter.code) && (trait < 0 || (((traits[i] >> trait) & 1) === 1) !== traitNeg);
 			sel[i] = inside ? 1 : 0;
 			if (!inside) continue;
 			members++;
@@ -724,7 +727,7 @@ void main() {
 			}
 			syncAsvOn();
 		}
-		const what = [filter ? rankNames[filter.rank][filter.code] : '', trait >= 0 ? TRAIT_LABEL[meta.traits[trait]] || meta.traits[trait] : ''].filter(Boolean).join(' · ');
+		const what = [filter ? rankNames[filter.rank][filter.code] : '', traitLabel()].filter(Boolean).join(' · ');
 		$('status').textContent = what ? `${what} · ${members.toLocaleString()} ${unit}` : IDLE;
 		dirty = true;
 		return ranked;
@@ -1045,9 +1048,10 @@ void main() {
 				for (const [k, name] of meta.traits.entries()) {
 					let n = 0; for (let i = 0; i < N; i++) n += (tb[i] >> k) & 1;
 					selEl.add(new Option(`${TRAIT_LABEL[name] || name} (${n.toLocaleString()})`, String(k)));
+					if (TRAIT_NOT[name]) selEl.add(new Option(`${TRAIT_NOT[name]} (${(N - n).toLocaleString()})`, `!${k}`));
 				}
 				$('traitRow').hidden = false;
-				on(selEl, 'change', () => { trait = +selEl.value; onRefresh(); });
+				on(selEl, 'change', () => { traitNeg = selEl.value.startsWith('!'); trait = parseInt(selEl.value.replace('!', ''), 10); onRefresh(); });
 			}
 		}
 		view(Math.max(0, R.levels.indexOf('class')), null);
