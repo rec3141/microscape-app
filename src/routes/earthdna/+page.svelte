@@ -8,13 +8,13 @@
 	<header class="space-y-1">
 		<h1 class="text-2xl font-semibold">EarthDNA</h1>
 		<p class="text-sm text-slate-400 max-w-2xl">
-			Globes of microbial diversity: every point is a DNA sequence, placed by 5-mer composition with spherical t-SNE
+			Globes of microbial diversity: every point is a DNA sequence, placed by its composition (k-mers or a DNA language model) with spherical t-SNE
 			(<a class="text-sky-400 hover:underline" href="https://github.com/rec3141/fastsne" target="_blank" rel="noopener noreferrer">fastsne</a>),
 			so nearby points are similar. Pick a globe.
 		</p>
 	</header>
 
-	<ul class="grid gap-4 sm:grid-cols-2">
+	<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 		{#each DATASETS as d (d.slug)}
 			<li>
 				<a

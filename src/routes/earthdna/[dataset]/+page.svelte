@@ -68,7 +68,7 @@
 				{/each}
 			</nav>
 			<p class="sub">
-				<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}, placed by 5-mer composition with
+				<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}, placed by {ds.method} with
 				spherical t-SNE (<a href="https://github.com/rec3141/fastsne" target="_blank" rel="noopener noreferrer">fastsne</a>).
 				Nearby {ds.unit[1]} are similar.
 				{#if !ds.release}
@@ -108,7 +108,7 @@
 		</div>
 		<div id="status">Drag to turn the globe.</div>
 		<div class="sliders">
-			<label class="slider" for="size">Point size <input id="size" type="range" min="0.5" max="6" step="0.1" value="0.5" /></label>
+			<label class="slider" for="size">Point size <input id="size" type="range" min="0.5" max="6" step="0.1" value={ds.pointSize ?? 0.5} /></label>
 			<label class="slider" for="alpha">Opacity <input id="alpha" type="range" min="0.05" max="1" step="0.01" value="1" /></label>
 		</div>
 	</section>
