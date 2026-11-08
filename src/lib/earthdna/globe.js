@@ -423,6 +423,8 @@ void main() {
 	}
 
 	// ---------- draw
+	// layouts are named <shape>[-<model>]: shape sculpt or similarity; model a key from globe.json `models` ('' = the first)
+	let shape = 'sculpt', model = '';
 	let dirty = true, morph = null, current = 'sculpt', flagMode = false, flags = null, majg = null, flagBuf = null;
 	// the data version goes on every URL, so a rebuilt globe is fetched fresh whatever a browser has cached
 	const url = (name) => `${base}/${name}` + (version ? `?v=${encodeURIComponent(version)}` : '');
@@ -448,22 +450,27 @@ void main() {
 		dirty = true;
 	}
 	const SCULPT = `Sculpted: each ${unitOne} is gently pulled toward its domain, phylum, class and order.${runs.length ? ' ASVs sit on their nearest reference.' : ''}`;
-	async function showLayout(name) {
-		if (name === current || morph) return;
+	const modelLabel = (m) => meta.models?.find((x) => x.key === m)?.label;
+	async function showLayout(s, m = model) {
+		const name = m ? `${s}-${m}` : s;
+		if (name === current || morph) return false;
 		if (!layouts[name]) {
-			$('status').textContent = 'Loading the sculpted layout…';
+			$('status').textContent = 'Loading the layout…';
 			let b;
-			try { b = await fetchBin(`layout_${name}.bin`); } catch { $('status').textContent = 'The sculpted layout did not load. Try again.'; return; }
+			try { b = await fetchBin(`layout_${name}.bin`); } catch { $('status').textContent = 'That layout did not load. Try again.'; return false; }
 			if (!alive) return;
 			layouts[name] = makeLayout(new Uint16Array(b.buffer, 0, N), new Uint16Array(b.buffer, 2 * N, N));
 			if (asv) asvLayout(name);
 		}
-		$('status').textContent = name === 'sculpt' ? SCULPT : 'Placed by sequence similarity alone.';
+		const by = meta.models ? modelLabel(m) : 'sequence';
+		$('status').textContent = s === 'sculpt' ? (meta.models ? `${by} map, ` + SCULPT.charAt(0).toLowerCase() + SCULPT.slice(1) : SCULPT)
+			: `Placed by ${by} similarity alone.`;
 		bindLayouts(layouts[current], layouts[name]);
 		const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 		morph = { to: layouts[name], t0: performance.now(), dur: reduce ? 1 : 2200, t: 0 };
-		current = name;
-		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === name ? 'true' : 'false');
+		current = name; shape = s; model = m;
+		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === s ? 'true' : 'false');
+		return true;
 	}
 	function draw() {
 		const sc = scale();
@@ -1046,8 +1053,15 @@ void main() {
 		if (sb && sb.length === 4 * N) {
 			layouts.sculpt = makeLayout(new Uint16Array(sb.buffer, 0, N), new Uint16Array(sb.buffer, 2 * N, N));
 			bindLayouts(layouts.sculpt, layouts.sculpt);
-		} else current = 'similarity';
+		} else current = shape = 'similarity';
 		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === current ? 'true' : 'false');
+		// Model: which embedding placed the points (the DNA-model globe); the first entry's layouts carry no suffix
+		if (meta.models?.length > 1) {
+			const mEl = $('model');
+			for (const x of meta.models) mEl.add(new Option(x.label, x.key));
+			$('modelRow').hidden = false;
+			on(mEl, 'change', async () => { if (!(await showLayout(shape, mEl.value))) mEl.value = model; });
+		}
 		buildIndex(layouts[current].lon, layouts[current].lat);
 		// rank codes for the picker: domain (from the groups), phylum..family, genus, species. The globe opens
 		// coloured by class (TaxonPicker's default), so it is coloured that way before it first shows.

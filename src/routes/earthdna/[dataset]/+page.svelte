@@ -93,6 +93,11 @@
 		<div class="row" hidden={!data.runs.length}>
 			<button class="btn" id="asvBtn" aria-pressed="false">Show amplicon runs</button>
 		</div>
+		<div class="row" id="modelRow" hidden>
+			<label class="rankpick highlight" for="model">Model
+				<select id="model"></select>
+			</label>
+		</div>
 		<div class="row">
 			<span class="rowlabel" id="shapedLabel">Shaped by</span>
 			<div class="seg" role="group" aria-labelledby="shapedLabel">
