@@ -7,8 +7,9 @@
  *        against (PLACE_GLOBE), so it is the only globe that shows runs.
  * gtdb:  too big for the repo; nginx serves /earthdna/gtdb226/ from
  *        /data/web/earthdna-ref/gtdb226/ on arbutus.
- * evo2:  a placeholder in static/earthdna/evo2-gtdb-7b/ (5,000 GTDB fragments placed by Evo 2 7B embeddings) until
- *        the full Evo 2 genome globe is built.
+ * models: globes placed by DNA language model embeddings instead of k-mers (Evo 2 now; other layers, the 20B
+ *        and DNABERT to come as toggles). For now a placeholder in static/earthdna/evo2-gtdb-7b/ (5,000 GTDB
+ *        fragments placed by Evo 2 7B). /earthdna/evo2 redirects here.
  */
 export interface Dataset {
 	slug: string;
@@ -59,8 +60,8 @@ export const DATASETS: Dataset[] = [
 		method: '5-mer composition'
 	},
 	{
-		slug: 'evo2',
-		name: 'Evo 2 (preview)',
+		slug: 'models',
+		name: 'DNA models (preview)',
 		base: '/earthdna/evo2-gtdb-7b',
 		version: 'evo2-7b-l28-gtdb5k-1',
 		release: null,
@@ -73,5 +74,8 @@ export const DATASETS: Dataset[] = [
 		pointSize: 3
 	}
 ];
+
+/** old slugs that now live elsewhere */
+export const MOVED: Record<string, string> = { evo2: 'models' };
 
 export const datasetBySlug = (slug: string) => DATASETS.find((d) => d.slug === slug);
