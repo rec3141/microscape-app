@@ -158,7 +158,7 @@ void main() {
 
 	// ---------- state
 	const R0 = [0, 1, 0, 0, 0, 1, 1, 0, 0];  // world -> view: lon 0 / lat 0 faces the viewer, north up
-	let rot = R0.slice(), zoom = 1, flat = false, spin = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+	let rot = R0.slice(), zoom = 1, flat = false, spin = false;  // spin starts off; the Spin toggle turns it on
 	let N = 0, meta = null, grp, gen, lin, spc, xyz, cellStart, cellIdx, selBuf, sel, hasSel = false;
 	// genome traits (globe.json traits; GTDB: cultured, named, type_material): one byte per point, bit k = trait k
 	let traits = null, trait = -1;
@@ -488,7 +488,7 @@ void main() {
 	// ---------- interaction
 	let dragging = false, moved = 0, lastP = null;
 	const pointers = new Map();
-	function stopSpin() { if (spin) { spin = false; $('spin').setAttribute('aria-pressed', 'false'); $('spin').textContent = 'Spin'; } }
+	function stopSpin() { if (spin) { spin = false; $('spin').setAttribute('aria-pressed', 'false'); } }
 	on(canvas, 'pointerdown', (e) => {
 		canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]);
 		dragging = true; moved = 0; lastP = [e.clientX, e.clientY]; canvas.classList.add('dragging'); $('tip').hidden = true;
@@ -700,7 +700,7 @@ void main() {
 	const press = (a, b, v) => { $(a).setAttribute('aria-pressed', v ? 'true' : 'false'); $(b).setAttribute('aria-pressed', v ? 'false' : 'true'); };
 	on($('vGlobe'), 'click', () => { flat = false; press('vGlobe', 'vFlat', true); dirty = true; });
 	on($('vFlat'), 'click', () => { flat = true; press('vGlobe', 'vFlat', false); dirty = true; });
-	on($('spin'), 'click', () => { spin = !spin; $('spin').setAttribute('aria-pressed', spin ? 'true' : 'false'); $('spin').textContent = spin ? 'Pause spin' : 'Spin'; });
+	on($('spin'), 'click', () => { spin = !spin; $('spin').setAttribute('aria-pressed', spin ? 'true' : 'false'); });
 	on($('labelsBtn'), 'click', () => { labelsOn = !labelsOn; $('labelsBtn').setAttribute('aria-pressed', labelsOn ? 'true' : 'false'); dirty = true; });
 	on($('lSim'), 'click', () => showLayout('similarity'));
 	on($('lSculpt'), 'click', () => showLayout('sculpt'));

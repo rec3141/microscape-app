@@ -53,6 +53,8 @@
 .earthdna .btn { font: inherit; font-size: 0.8rem; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
 .earthdna .btn:disabled { opacity: 0.5; cursor: progress; }
 .earthdna .btn[aria-pressed='false'] { color: var(--muted); }
+/* on/off toggles (Spin, Labels): the title stays, the background says which */
+.earthdna .btn.toggle[aria-pressed='true'] { color: var(--space); background: var(--ink); border-color: var(--ink); }
 .earthdna .btn:hover, .earthdna .seg button:hover { color: var(--ink); }
 .earthdna #q {
 	flex: 1; min-width: 0; font: inherit; font-size: 0.85rem; color: var(--ink); background: rgba(255, 255, 255, 0.04);
