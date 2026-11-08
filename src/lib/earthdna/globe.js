@@ -47,6 +47,8 @@ function generatePalette(n) {
 	return colors;
 }
 // unclassified is drawn bright, so it stands out from dimmed points
+// camera distance (globe radii) and focal length of the globe's mild perspective; the shaders use the same
+const CAM = 4.5, FOC = Math.sqrt(CAM * CAM - 1);
 const NONE = 65535, BRIGHT = [0.96, 0.93, 0.82];
 // per-point colour slots index a colour texture COLW texels wide (no limit on how many taxa get their own colour)
 const COLW = 2048;  // WebGL2 guarantees 2048-wide textures
@@ -84,9 +86,12 @@ float facing(vec3 p) { return uFlat < 0.5 ? clamp((uRot * p).z, 0.0, 1.0) : 1.0;
 float shade(vec3 p) { return 0.5 + 0.5 * facing(p); }
 float shrink(vec3 p) { return 0.45 + 0.55 * sqrt(facing(p)); }
 // world unit vector -> clip xy, visible flag
+// globe: a mild perspective from a camera CAM radii away; FOC = sqrt(CAM^2 - 1) keeps the outline on the unit circle,
+// and a point is visible when it is in front of the horizon seen from the camera (q.z > 1 / CAM)
+const float CAM = 4.5, FOC = 4.3874822;
 vec3 project(vec3 p) {
   vec3 q = uRot * p;
-  if (uFlat < 0.5) return vec3(q.xy * uScale, q.z > 0.0 ? 1.0 : 0.0);
+  if (uFlat < 0.5) return vec3(q.xy * (FOC / (CAM - q.z)) * uScale, q.z > 1.0 / CAM ? 1.0 : 0.0);
   float lam = atan(q.x, q.z), phi = asin(clamp(q.y, -1.0, 1.0));
   float t = phi;
   for (int i = 0; i < 6; i++) { float f = 2.0 * t + sin(2.0 * t) - PI * sin(phi); t -= f / (2.0 + 2.0 * cos(2.0 * t) + 1e-6); }
@@ -314,7 +319,7 @@ void main() {
 	}
 	// nearest point within 8 px of the cursor, from a cell index
 	function nearestIn(p, pts, start, idx, skip) {
-		const pxPerRad = (scale()[0] * canvas.clientWidth) / 2 * (flat ? 0.9 : 1);
+		const pxPerRad = (scale()[0] * canvas.clientWidth) / 2 * (flat ? 0.9 : FOC / (CAM - 1));  // the centre is magnified
 		return nearestWithin(p, pts, start, idx, 8 / pxPerRad, skip);
 	}
 	// nearest point within thr radians of unit vector p
@@ -391,7 +396,7 @@ void main() {
 				if (rpx < 26 || rpx > 0.9 * minDim) continue;
 				const p = L.p, q = [0, 1, 2].map((j) => rot[3 * j] * p[0] + rot[3 * j + 1] * p[1] + rot[3 * j + 2] * p[2]);
 				let x, y;
-				if (!flat) { if (q[2] < 0.15) continue; x = q[0]; y = q[1]; }
+				if (!flat) { if (q[2] < 0.15) continue; const w = FOC / (CAM - q[2]); x = q[0] * w; y = q[1] * w; }
 				else {
 					const lam = Math.atan2(q[0], q[2]), phi = Math.asin(Math.max(-1, Math.min(1, q[1])));
 					let t = phi; for (let k = 0; k < 6; k++) t -= (2 * t + Math.sin(2 * t) - Math.PI * Math.sin(phi)) / (2 + 2 * Math.cos(2 * t) + 1e-6);
@@ -569,7 +574,13 @@ void main() {
 		const r = canvas.getBoundingClientRect(), sc = scale();
 		const x = ((cx - r.left) / r.width * 2 - 1) / sc[0], y = (1 - (cy - r.top) / r.height * 2) / sc[1];
 		let q;
-		if (!flat) { const r2 = x * x + y * y; if (r2 > 1) return null; q = [x, y, Math.sqrt(1 - r2)]; }
+		if (!flat) {
+			// ray from the camera (0, 0, CAM) through the screen point: q = (x, y) (CAM - z) / FOC on the unit sphere
+			const k = (x * x + y * y) / (FOC * FOC), disc = CAM * CAM - (k + 1) * (CAM * CAM - 1);
+			if (disc < 0) return null;
+			const u = (CAM - Math.sqrt(disc)) / (k + 1), z = CAM - u;
+			q = [x * u / FOC, y * u / FOC, z];
+		}
 		else {
 			const mx = 2 * x, my = 2 * y, st = my / Math.SQRT2; if (Math.abs(st) > 1) return null;
 			const t = Math.asin(st), lam = mx / (0.9003163 * Math.cos(t)); if (Math.abs(lam) > Math.PI) return null;
