@@ -37,7 +37,10 @@ const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
 function hsl(h, s, l) { const a = s * Math.min(l, 1 - l), f = (n) => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0), f(8), f(4)]; }
 const REGION_NAMES = { '14964-22534': '16S V4', '13861-27653': '16S V4–V5', '42586-43102': '18S V9', '6427-23439': '16S V3–V4', '1114-6386': '18S V1–V2' };
 const regionName = (r) => REGION_NAMES[r] || `alignment columns ${r}`;
-const IDLE = 'Drag to turn the globe. Click a point to pick out its taxon at the colour rank; click empty space to clear.';
+// phones turn the globe with taps and drags only (no point picking), so their hint points to the taxa list instead
+const IDLE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+	? 'Drag to turn the globe. Pick a taxon in the list to highlight it.'
+	: 'Drag to turn the globe. Click a point to pick out its taxon at the colour rank; click empty space to clear.';
 
 // danaSeq viz's palette (illumina_amplicon/viz/src/stores/data.svelte.js), so a rank list reads the same in both: a spiral
 // round the colour wheel (golden-angle hue steps, saturation and lightness cycling), one colour per taxon however many
@@ -555,7 +558,8 @@ void main() {
 		pointers.delete(e.pointerId);
 		if (pointers.size === 0) {
 			dragging = false; canvas.classList.remove('dragging');
-			if (moved < 4 && e.type === "pointerup") pickPoint(e.clientX, e.clientY);
+			// taps on a phone turn the globe only: a fingertip covers many points, and a pick on every stray tap gets in the way
+			if (moved < 4 && e.type === "pointerup" && e.pointerType !== "touch") pickPoint(e.clientX, e.clientY);
 		} else lastP = [...pointers.values()][0];
 	}
 	on(canvas, 'pointerup', endPointer); on(canvas, 'pointercancel', endPointer);
