@@ -7,9 +7,9 @@
  *        against (PLACE_GLOBE), so it is the only globe that shows runs.
  * gtdb:  too big for the repo; nginx serves /earthdna/gtdb226/ from
  *        /data/web/earthdna-ref/gtdb226/ on arbutus.
- * models: globes placed by DNA language model embeddings instead of k-mers (Evo 2 now; other layers, the 20B
- *        and DNABERT to come as toggles). For now a placeholder in static/earthdna/evo2-gtdb-7b/ (5,000 GTDB
- *        fragments placed by Evo 2 7B). /earthdna/evo2 redirects here.
+ * models: in static/earthdna/models-gtdb-genus/, one 4 kb window per GTDB genus (earthdna models_set.py) laid
+ *        out by each model; globe.json `models` names them and the viewer's Model picker switches between their
+ *        layouts (layout_<shape>-<key>.bin). /earthdna/evo2 redirects here.
  */
 export interface Dataset {
 	slug: string;
@@ -61,17 +61,17 @@ export const DATASETS: Dataset[] = [
 	},
 	{
 		slug: 'models',
-		name: 'DNA models (preview)',
-		base: '/earthdna/evo2-gtdb-7b',
-		version: 'evo2-7b-l28-gtdb5k-1',
+		name: 'DNA models',
+		base: '/earthdna/models-gtdb-genus',
+		version: 'models-genus4k-1',
 		release: null,
-		count: 5000,
-		unit: ['fragment', 'fragments'],
-		blurb: 'A first look: 5,000 GTDB genome fragments (50 species, 10 genera) placed by what the Evo 2 DNA language model makes of them instead of by k-mers.',
-		source: '10 kb GTDB r226 fragments from 50 species in 10 genera',
-		preview: '/earthdna/previews/evo2.webp',
-		method: 'Evo 2 7B embeddings (layer 28, channels standardised)',
-		pointSize: 3
+		count: 28850,
+		unit: ['window', 'windows'],
+		blurb: 'One 4 kb window from every GTDB genus, placed by DNA language models (Evo 2, DNABERT-S) or by 5-mers: switch models and watch the map change.',
+		source: '4 kb windows, one per GTDB r226 genus',
+		preview: '/earthdna/previews/models.webp',
+		method: 'DNA language model embeddings (pick one under Model)',
+		pointSize: 1.5
 	}
 ];
 
