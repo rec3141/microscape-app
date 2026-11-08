@@ -1,9 +1,9 @@
 import type { PageServerLoad } from './$types';
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { listAccessibleRuns } from '$lib/server/run-list';
-import { datasetBySlug } from '$lib/earthdna/datasets';
+import { datasetBySlug, MOVED } from '$lib/earthdna/datasets';
 
 /**
  * One EarthDNA reference globe (src/lib/earthdna/datasets.ts). On the globe
@@ -13,6 +13,7 @@ import { datasetBySlug } from '$lib/earthdna/datasets';
  * again per file.
  */
 export const load: PageServerLoad = async ({ locals, params }) => {
+	if (MOVED[params.dataset]) redirect(301, `/earthdna/${MOVED[params.dataset]}`);
 	const dataset = datasetBySlug(params.dataset);
 	if (!dataset) error(404, 'No such EarthDNA globe');
 	const runs = dataset.release
