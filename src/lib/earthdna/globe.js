@@ -37,7 +37,7 @@ const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
 function hsl(h, s, l) { const a = s * Math.min(l, 1 - l), f = (n) => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0), f(8), f(4)]; }
 const REGION_NAMES = { '14964-22534': '16S V4', '13861-27653': '16S V4–V5', '42586-43102': '18S V9', '6427-23439': '16S V3–V4', '1114-6386': '18S V1–V2' };
 const regionName = (r) => REGION_NAMES[r] || `alignment columns ${r}`;
-const IDLE = 'Drag to turn the globe. Click a point to pick out its genus.';
+const IDLE = 'Drag to turn the globe. Click a point to pick out its taxon at the colour rank; click empty space to clear.';
 
 // danaSeq viz's palette (illumina_amplicon/viz/src/stores/data.svelte.js), so a rank list reads the same in both: a spiral
 // round the colour wheel (golden-angle hue steps, saturation and lightness cycling), one colour per taxon however many
@@ -696,9 +696,11 @@ void main() {
 		return `${meta.ranks.levels[u[0].rank]} · ${u[0].count.toLocaleString()}` + (u.length > 1 ? ` (+${u.length - 1} more)` : '');
 	}
 	let curLevel = 2;  // the rank the globe is coloured by (view() sets it); the tooltip names the point's taxon there
+	let baseLevel = 2, pickedLevel = -1;  // the Colour by rank (the level shown with nothing picked); a click picks at it
 	function view(level, filter) {
 		if (!rankArr) return [];
 		curLevel = level;
+		if (!filter) { baseLevel = level; pickedLevel = -1; }
 		const counts = new Map();
 		let members = 0;
 		for (let i = 0; i < N; i++) {
@@ -741,9 +743,14 @@ void main() {
 		dirty = true;
 		return ranked;
 	}
+	// a click picks the point's taxon at the rank the globe is coloured by (the picker's Colour by level, kept while a
+	// taxon is picked), so its relatives at that rank light up; a click on empty space clears the pick
 	function pickPoint(cx, cy) {
 		const i = nearest(cx, cy);
-		if (i >= 0 && rankArr) onPick(lineageOf(i).filter((x) => x.rank <= 5));
+		if (i < 0) { if (hasSel || pickedLevel >= 0) onClear(); return; }
+		if (!rankArr) return;
+		const lineage = lineageOf(i).filter((x) => x.rank <= baseLevel);
+		if (lineage.length) { pickedLevel = baseLevel; onPick(lineage); }
 	}
 	on(window, 'keydown', (e) => { if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement)) onClear(); });
 	const press = (a, b, v) => { $(a).setAttribute('aria-pressed', v ? 'true' : 'false'); $(b).setAttribute('aria-pressed', v ? 'false' : 'true'); };
