@@ -191,7 +191,6 @@ void main() {
 	let traits = null, trait = -1, traitNeg = false;
 	const TRAIT_LABEL = { cultured: 'Cultured isolates', named: 'Named species', type_material: 'Type material' };
 	const TRAIT_NOT = { cultured: 'Uncultured (MAGs, single cells)', named: 'Unnamed species' };
-	const traitLabel = () => trait < 0 ? '' : (traitNeg ? TRAIT_NOT : TRAIT_LABEL)[meta.traits[trait]] || (traitNeg ? 'not ' : '') + meta.traits[trait];
 	let domIx = null, rankArr = null, rankNames = null, cidx = null, cidxBuf = null, asvFilter = '';
 	// one RGBA texel per colour slot, COLW wide; rows grow with the number of slots (texel past the end reads black)
 	const colTex = gl.createTexture();
@@ -439,7 +438,6 @@ void main() {
 			gl.bindBuffer(gl.ARRAY_BUFFER, flagBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, flags);
 		}
 		flagMode = mode;
-		$('cTax').setAttribute('aria-pressed', mode ? 'false' : 'true'); $('cFlag').setAttribute('aria-pressed', mode ? 'true' : 'false');
 		if (mode) {
 			let d = 0, p = 0; for (let i = 0; i < N; i++) { if (flags[i] === 2) d++; else if (flags[i] === 1) p++; }
 			$('status').innerHTML = `<span class="dot red"></span>${d.toLocaleString()} labelled with the wrong domain · <span class="dot amber"></span>${p.toLocaleString()} with the wrong phylum, judging by their 15 nearest neighbours`;
@@ -738,8 +736,8 @@ void main() {
 			}
 			syncAsvOn();
 		}
-		const what = [filter ? rankNames[filter.rank][filter.code] : '', traitLabel()].filter(Boolean).join(' · ');
-		$('status').textContent = what ? `${what} · ${members.toLocaleString()} ${unit}` : IDLE;
+		const what = filter ? rankNames[filter.rank][filter.code] : '';
+		if (!flagMode) $('status').textContent = what ? `${what} · ${members.toLocaleString()} ${unit}` : IDLE;  // disagreements keep their summary
 		dirty = true;
 		return ranked;
 	}
@@ -755,8 +753,6 @@ void main() {
 	on($('labelsBtn'), 'click', () => { labelsOn = !labelsOn; $('labelsBtn').setAttribute('aria-pressed', labelsOn ? 'true' : 'false'); dirty = true; });
 	on($('lSim'), 'click', () => showLayout('similarity'));
 	on($('lSculpt'), 'click', () => showLayout('sculpt'));
-	on($('cTax'), 'click', () => setColour(false));
-	on($('cFlag'), 'click', () => setColour(true));
 	on($('asvBtn'), 'click', () => toggleAsv());
 	on($('size'), 'input', () => (dirty = true)); on($('alpha'), 'input', () => (dirty = true));
 	const ro = new ResizeObserver(() => resize()); ro.observe(canvas); cleanups.push(() => ro.disconnect());
@@ -1050,20 +1046,29 @@ void main() {
 		rankArr = [0, 1, 2, 3].map((k) => new Uint16Array(rk.buffer, 2 * k * N, N));
 		const R = meta.ranks;
 		rankNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
+		// Highlight: genome traits (traits.bin, GTDB) and taxonomic disagreements (flags.bin, the label checks)
+		const selEl = $('trait');
+		selEl.options[0].textContent = `All ${unit}`;
 		if (meta.traits?.length) {
-			// optional: a globe without traits.bin just has no Highlight control
 			const tb = await fetchBin('traits.bin').catch(() => null);
 			if (tb && tb.length === N) {
 				traits = tb;
-				const selEl = $('trait');
 				for (const [k, name] of meta.traits.entries()) {
-					let n = 0; for (let i = 0; i < N; i++) n += (tb[i] >> k) & 1;
-					selEl.add(new Option(`${TRAIT_LABEL[name] || name} (${n.toLocaleString()})`, String(k)));
-					if (TRAIT_NOT[name]) selEl.add(new Option(`${TRAIT_NOT[name]} (${(N - n).toLocaleString()})`, `!${k}`));
+					selEl.add(new Option(TRAIT_LABEL[name] || name, String(k)));
+					if (TRAIT_NOT[name]) selEl.add(new Option(TRAIT_NOT[name], `!${k}`));
 				}
-				$('traitRow').hidden = false;
-				on(selEl, 'change', () => { traitNeg = selEl.value.startsWith('!'); trait = parseInt(selEl.value.replace('!', ''), 10); onRefresh(); });
 			}
+		}
+		if (meta.flags) selEl.add(new Option('Taxonomic disagreements', 'flags'));
+		if (selEl.options.length > 1) {
+			$('traitRow').hidden = false;
+			on(selEl, 'change', async () => {
+				const v = selEl.value;
+				if (v === 'flags') { trait = -1; onRefresh(); await setColour(true); return; }
+				traitNeg = v.startsWith('!'); trait = parseInt(v.replace('!', ''), 10);
+				if (flagMode) await setColour(false);
+				onRefresh();
+			});
 		}
 		view(Math.max(0, R.levels.indexOf('class')), null);
 		$('nseq').textContent = N.toLocaleString();

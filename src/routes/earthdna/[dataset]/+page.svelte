@@ -94,21 +94,16 @@
 			<button class="btn" id="asvBtn" aria-pressed="false">Show amplicon runs</button>
 		</div>
 		<div class="row">
-			<div class="seg" role="group" aria-label="Layout">
-				<button id="lSculpt" aria-pressed="true">Sculpted by taxonomy</button>
+			<span class="rowlabel" id="shapedLabel">Shaped by</span>
+			<div class="seg" role="group" aria-labelledby="shapedLabel">
+				<button id="lSculpt" aria-pressed="true">Taxonomy</button>
 				<button id="lSim" aria-pressed="false">Similarity</button>
-			</div>
-		</div>
-		<div class="row">
-			<div class="seg" role="group" aria-label="Colour">
-				<button id="cTax" aria-pressed="true">Colour by taxon</button>
-				<button id="cFlag" aria-pressed="false">Label conflicts</button>
 			</div>
 		</div>
 		<div class="row ovrow" id="ovRow" hidden><span class="ovtitle">Reads</span></div>
 		<div class="row" id="traitRow" hidden>
 			<label class="rankpick highlight" for="trait">Highlight
-				<select id="trait"><option value="-1">All genomes</option></select>
+				<select id="trait"><option value="-1">All</option></select>
 			</label>
 		</div>
 		<div id="status">Drag to turn the globe. Click a point to pick out its genus.</div>
