@@ -1192,11 +1192,13 @@ void main() {
 	// where a taxon sits in a layout: its member nearest the centroid, as [lon, lat] in degrees
 	function anchorOf(name, layout) {
 		const hit = showFind(name), L = layouts[layout]; if (!hit || !L) return null;
-		const { rank, code } = hit[hit.length - 1], P = L.xyz, c = [0, 0, 0];
-		for (let i = 0; i < N; i++) if (rankCode(rank, i) === code) { c[0] += P[3 * i]; c[1] += P[3 * i + 1]; c[2] += P[3 * i + 2]; }
+		const { rank, code } = hit[hit.length - 1], P = L.ll, c = [0, 0, 0];
+		for (let i = 0; i < N; i++) if (rankCode(rank, i) === code) { const q = toXyz(P[2 * i], P[2 * i + 1]); c[0] += q[0]; c[1] += q[1]; c[2] += q[2]; }
 		let best = -Infinity, at = -1;
-		for (let i = 0; i < N; i++) if (rankCode(rank, i) === code) { const d = P[3 * i] * c[0] + P[3 * i + 1] * c[1] + P[3 * i + 2] * c[2]; if (d > best) { best = d; at = i; } }
-		return at < 0 ? null : [Math.atan2(P[3 * at + 1], P[3 * at]) / RAD, Math.asin(Math.max(-1, Math.min(1, P[3 * at + 2]))) / RAD];
+		for (let i = 0; i < N; i++) if (rankCode(rank, i) === code) { const d = dotLL(P, i, c[0], c[1], c[2]); if (d > best) { best = d; at = i; } }
+		if (at < 0) return null;
+		const q = toXyz(P[2 * at], P[2 * at + 1]);
+		return [Math.atan2(q[1], q[0]) / RAD, Math.asin(Math.max(-1, Math.min(1, q[2]))) / RAD];
 	}
 	async function initShow() {
 		const r = await fetch(show.url); if (!r.ok) throw new Error(`${r.status}`);
