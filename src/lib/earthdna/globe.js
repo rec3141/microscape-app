@@ -14,6 +14,8 @@ import { TAXON_SYNONYMS } from './taxa';
  *            uint16, or uint32 when globe.json says speciesBytes 4),
  *            ranks.bin (phylum, class, order, family uint16),
  *            layout_sculpt.bin, flags.bin
+ *            With globe.json `records` (GTDB, all fragments), tax.bin, ranks.bin and traits.bin hold one entry per
+ *            record (genome) and records.bin gives each point its record (uint32)
  *   version  data build id, added to every data URL (?v=) so a rebuilt globe is never read from cache
  *   unit, unitOne  what a point is, for the page's text ('sequences', 'sequence')
  *   release  reference release the runs' placements must name
@@ -207,10 +209,12 @@ void main() {
 	// ---------- state
 	const R0 = [0, 1, 0, 0, 0, 1, 1, 0, 0];  // world -> view: lon 0 / lat 0 faces the viewer, north up
 	let rot = R0.slice(), zoom = 1, flat = false, spin = false;  // spin starts off; the Spin toggle turns it on
-	let N = 0, meta = null, grp, gen, lin, spc, xyz, cellStart, cellIdx, selBuf, sel, hasSel = false;
+	let N = 0, meta = null, grp, gen, lin, spc, rec = null, LL, cellStart, cellIdx, selBuf, sel, hasSel = false;
 	// genome traits (globe.json traits; GTDB: cultured, named, type_material): one byte per point, bit k = trait k
 	// trait = bit highlighted (-1 none); traitNeg highlights the points without it (uncultured, unnamed)
 	let traits = null, trait = -1, traitNeg = false;
+	// a point's row in the taxonomy arrays: itself, or its record (genome) when the data come per record
+	const T = (i) => rec ? rec[i] : i;
 	const TRAIT_LABEL = { cultured: 'Cultured isolates', named: 'Named species', type_material: 'Type material' };
 	const TRAIT_NOT = { cultured: 'Uncultured (MAGs, single cells)', named: 'Unnamed species' };
 	let domIx = null, rankArr = null, rankNames = null, cidx = null, cidxBuf = null, asvFilter = '';
@@ -273,7 +277,7 @@ void main() {
 	{ const loc = gl.getAttribLocation(bgProg, 'aP'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0); }
 	const ptVao = gl.createVertexArray();
 
-	const layouts = {};  // name -> { lon, lat, buf, W }
+	const layouts = {};  // name -> { ll, buf, W }
 	// cos and sin of every uint16 longitude and latitude, so the per-point loops (millions of points) take no trig
 	const COSLO = new Float64Array(65536), SINLO = new Float64Array(65536), COSLA = new Float64Array(65536), SINLA = new Float64Array(65536);
 	for (let u = 0; u < 65536; u++) {
@@ -281,6 +285,8 @@ void main() {
 		COSLO[u] = Math.cos(a); SINLO[u] = Math.sin(a); COSLA[u] = Math.cos(b); SINLA[u] = Math.sin(b);
 	}
 	const toXyz = (lo, la) => [COSLA[la] * COSLO[lo], COSLA[la] * SINLO[lo], SINLA[la]];
+	// dot product of point i of an interleaved lon, lat array with unit vector p (no stored unit vectors: 12 bytes a point)
+	const dotLL = (ll, i, p0, p1, p2) => { const la = ll[2 * i + 1], lo = ll[2 * i]; return COSLA[la] * (COSLO[lo] * p0 + SINLO[lo] * p1) + SINLA[la] * p2; };
 	const apply = (W, p) => [0, 1, 2].map((r) => W[3 * r] * p[0] + W[3 * r + 1] * p[1] + W[3 * r + 2] * p[2]);
 	const toLL = (p) => [Math.round((Math.atan2(p[1], p[0]) + Math.PI) / (2 * Math.PI) * 65535), Math.round((Math.asin(Math.max(-1, Math.min(1, p[2]))) + Math.PI / 2) / Math.PI * 65535)];
 	// Rotation that lays the domains along the equator: the pole is the axis the three domain centres sit
@@ -324,19 +330,18 @@ void main() {
 		const k = [0, 1, 2].reduce((m, i) => (a[4 * i] < a[4 * m] ? i : m), 0);
 		return [V[k], V[3 + k], V[6 + k]];
 	}
-	// a layout turned onto the equator: uint16 lon, lat (and their GL buffer) plus each point's unit vector, xyz
+	// a layout turned onto the equator: interleaved uint16 lon, lat, kept as is and as its GL buffer
 	function makeLayout(lon0, lat0) {
-		const W = equatorRotation(lon0, lat0), lon = new Uint16Array(N), lat = new Uint16Array(N), ll = new Uint16Array(2 * N);
-		const xyz = new Float32Array(3 * N), K1 = 65535 / (2 * Math.PI), K2 = 65535 / Math.PI;
+		const W = equatorRotation(lon0, lat0), ll = new Uint16Array(2 * N), K1 = 65535 / (2 * Math.PI), K2 = 65535 / Math.PI;
 		const [w0, w1, w2, w3, w4, w5, w6, w7, w8] = W;
 		for (let i = 0; i < N; i++) {
 			const cb = COSLA[lat0[i]], x = cb * COSLO[lon0[i]], y = cb * SINLO[lon0[i]], z = SINLA[lat0[i]];
 			const X = w0 * x + w1 * y + w2 * z, Y = w3 * x + w4 * y + w5 * z, Z = w6 * x + w7 * y + w8 * z;
 			const a = Math.round((Math.atan2(Y, X) + Math.PI) * K1), b = Math.round((Math.asin(Z > 1 ? 1 : Z < -1 ? -1 : Z) + Math.PI / 2) * K2);
-			lon[i] = a; lat[i] = b; ll[2 * i] = a; ll[2 * i + 1] = b; xyz[3 * i] = X; xyz[3 * i + 1] = Y; xyz[3 * i + 2] = Z;
+			ll[2 * i] = a; ll[2 * i + 1] = b;
 		}
 		const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, ll, gl.STATIC_DRAW);
-		return { lon, lat, buf: b, W, xyz };
+		return { ll, buf: b, W };
 	}
 	function bindLayouts(from, to) {
 		gl.bindVertexArray(ptVao);
@@ -364,28 +369,26 @@ void main() {
 		flagBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, flagBuf); gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(N), gl.STATIC_DRAW);
 		loc = gl.getAttribLocation(ptProg, 'aFlag'); gl.enableVertexAttribArray(loc); gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
 	}
-	// 1-degree lon/lat cells for hover lookup; out gets the unit vectors unless the caller has them (fill false)
-	function cellIndex(lon, lat, n, out, fill = true) {
-		const cell = new Int32Array(n), cnt = new Int32Array(360 * 180 + 1);
-		for (let i = 0; i < n; i++) {
-			if (fill) { const cb = COSLA[lat[i]]; out[3 * i] = cb * COSLO[lon[i]]; out[3 * i + 1] = cb * SINLO[lon[i]]; out[3 * i + 2] = SINLA[lat[i]]; }
-			const c = Math.min(179, Math.floor(lat[i] / 65536 * 180)) * 360 + Math.min(359, Math.floor(lon[i] / 65536 * 360));
-			cell[i] = c; cnt[c + 1]++;
-		}
+	// 1-degree lon/lat cells for hover lookup over an interleaved lon, lat array (each cell found twice rather than
+	// stored: 4 bytes a point less at the peak)
+	const cellOf = (ll, i) => Math.min(179, Math.floor(ll[2 * i + 1] / 65536 * 180)) * 360 + Math.min(359, Math.floor(ll[2 * i] / 65536 * 360));
+	function cellIndex(ll, n) {
+		const cnt = new Int32Array(360 * 180 + 1);
+		for (let i = 0; i < n; i++) cnt[cellOf(ll, i) + 1]++;
 		for (let c = 0; c < 360 * 180; c++) cnt[c + 1] += cnt[c];
-		const start = cnt.slice(), idx = new Int32Array(n), cur = cnt.slice(0, -1);
-		for (let i = 0; i < n; i++) idx[cur[cell[i]]++] = i;
+		const start = cnt.slice(), idx = new Int32Array(n), cur = cnt.subarray(0, -1);
+		for (let i = 0; i < n; i++) idx[cur[cellOf(ll, i)]++] = i;
 		return [start, idx];
 	}
 	function buildIndex(L) {
-		xyz = L.xyz;
-		[cellStart, cellIdx] = cellIndex(L.lon, L.lat, N, xyz, false);
+		LL = L.ll; cellIdx = null;  // the old index goes before the new one is built
+		[cellStart, cellIdx] = cellIndex(LL, N);
 		buildLabels();
 	}
 	// the similarity map's cell index, which the runs' ASVs are snapped against; built the first time runs load
 	function similarityIndex() {
 		const S = similarity();
-		if (!S.start) [S.start, S.idx] = cellIndex(S.lon, S.lat, N, S.xyz, false);
+		if (!S.start) [S.start, S.idx] = S.ll === LL ? [cellStart, cellIdx] : cellIndex(S.ll, N);
 		return S;
 	}
 	// nearest point within 8 px of the cursor, from a cell index
@@ -397,7 +400,7 @@ void main() {
 	}
 	// nearest point within thr radians of unit vector p
 	function nearestWithin(p, pts, start, idx, thr, skip) {
-		const cosT = Math.cos(thr);
+		const cosT = Math.cos(thr), [p0, p1, p2] = p;
 		const lat = Math.asin(Math.max(-1, Math.min(1, p[2]))) * 180 / Math.PI, lon = Math.atan2(p[1], p[0]) * 180 / Math.PI;
 		const dl = thr * 180 / Math.PI, cj = Math.floor(lon + 180);
 		const r0 = Math.max(0, Math.floor(lat + 90 - dl)), r1 = Math.min(179, Math.floor(lat + 90 + dl));
@@ -408,7 +411,7 @@ void main() {
 			for (let k = start[c]; k < start[c + 1]; k++) {
 				const i = idx[k];
 				if (skip(i)) continue;
-				const d = pts[3 * i] * p[0] + pts[3 * i + 1] * p[1] + pts[3 * i + 2] * p[2];
+				const d = dotLL(pts, i, p0, p1, p2);
 				if (d > bd) { bd = d; best = i; }
 			}
 			if (wl === 180) break;
@@ -419,36 +422,66 @@ void main() {
 	// ---------- place names: domain, phylum, family, genus; each shown once its territory is big enough on screen
 	let labelSets = [], labelPool = [], labelsOn = true;
 	const SKIP = /^(|\?|other|incertae sedis|uncultured.*|unidentified.*|unclassified.*|metagenome.*|.*environmental sample.*)$/i;
-	function buildLabels() {
+	// built in slices of points between frames, so a big globe can be turned while its names are worked out; a newer
+	// call (another layout) abandons an older one
+	let labelGen = 0;
+	const SLICE = 300000, breathe = () => new Promise((r) => setTimeout(r, 0));
+	async function buildLabels() {
+		const gen0 = ++labelGen, L0 = LL;
+		labelSets = []; dirty = true;
 		const domName = meta.groups.map((g) => g.split(' · ')[0]);
 		const doms = [...new Set(domName)], dIx = domName.map((d) => doms.indexOf(d));
 		const levels = [
-			{ cls: 'L0', names: doms, code: (i) => dIx[grp[i]] ?? -1, min: 1000 },
-			{ cls: 'L1', names: meta.groups.map((g) => g.split(' · ')[1] || g), code: (i) => grp[i], min: 200 },
-			{ cls: 'L2', names: meta.lineages, code: (i) => lin[i], min: 40 },
-			{ cls: 'L3', names: meta.genera, code: (i) => gen[i], min: 25 },
-			{ cls: 'L4', names: meta.species, code: (i) => spc[i], min: 5 }
+			{ cls: 'L0', names: doms, min: 1000 },
+			{ cls: 'L1', names: meta.groups.map((g) => g.split(' · ')[1] || g), min: 200 },
+			{ cls: 'L2', names: meta.lineages, min: 40 },
+			{ cls: 'L3', names: meta.genera, min: 25 },
+			{ cls: 'L4', names: meta.species, min: 5 }
 		];
-		labelSets = levels.map((L) => {
-			const G = L.names.length, sum = new Float64Array(3 * G), n = new Int32Array(G);
-			for (let i = 0; i < N; i++) { const g = L.code(i); if (g < 0 || g >= G) continue; n[g]++; sum[3 * g] += xyz[3 * i]; sum[3 * g + 1] += xyz[3 * i + 1]; sum[3 * g + 2] += xyz[3 * i + 2]; }
-			const c = new Float64Array(3 * G);
-			for (let g = 0; g < G; g++) { const l = Math.hypot(sum[3 * g], sum[3 * g + 1], sum[3 * g + 2]) || 1; for (let k = 0; k < 3; k++) c[3 * g + k] = sum[3 * g + k] / l; }
-			// anchor at the member nearest the centroid (a scattered group's centroid can sit in open ocean); spread = mean
-			// chord to the centre (within 4% of the mean angle out to 1 rad, and no acos per point)
-			const best = new Float64Array(G).fill(-2), at = new Int32Array(G).fill(-1), dsum = new Float64Array(G);
-			for (let i = 0; i < N; i++) {
-				const g = L.code(i); if (g < 0 || g >= G || n[g] < L.min) continue;
-				const d = xyz[3 * i] * c[3 * g] + xyz[3 * i + 1] * c[3 * g + 1] + xyz[3 * i + 2] * c[3 * g + 2];
-				dsum[g] += Math.sqrt(Math.max(0, 2 - 2 * d));
-				if (d > best[g]) { best[g] = d; at[g] = i; }
+		// all levels in two passes over the points (centroids, then the member nearest each), in flat arrays: level k's
+		// taxon g is slot off[k] + g, and each point's five slots are read once per pass
+		const K = levels.length, Gs = levels.map((L) => L.names.length), off = [0];
+		for (let k = 0; k < K; k++) off.push(off[k] + Gs[k]);
+		const S = off[K], dI = Int32Array.from(dIx), R = rec, NG = Gs[1];
+		const [o2, o3, o4] = [off[2], off[3], off[4]], [G2, G3, G4] = [Gs[2], Gs[3], Gs[4]];
+		const slots = new Int32Array(5);
+		function fill(i) {
+			const r = R ? R[i] : i, g = grp[i], a = lin[r], b = gen[r], c = spc[r];
+			slots[0] = g < NG ? dI[g] : -1; slots[1] = g < NG ? off[1] + g : -1;
+			slots[2] = a < G2 ? o2 + a : -1; slots[3] = b < G3 ? o3 + b : -1; slots[4] = c < G4 ? o4 + c : -1;
+		}
+		const sum = new Float64Array(3 * S), n = new Int32Array(S);
+		for (let i = 0; i < N; i++) {
+			if (i % SLICE === 0 && i && N > SLICE) { await breathe(); if (gen0 !== labelGen || !alive) return; }
+			fill(i);
+			const lo = L0[2 * i], la = L0[2 * i + 1], cb = COSLA[la], x = cb * COSLO[lo], y = cb * SINLO[lo], z = SINLA[la];
+			for (let k = 0; k < 5; k++) { const q = slots[k]; if (q < 0) continue; n[q]++; sum[3 * q] += x; sum[3 * q + 1] += y; sum[3 * q + 2] += z; }
+		}
+		const min = new Int32Array(S);
+		for (let k = 0; k < K; k++) min.fill(levels[k].min, off[k], off[k + 1]);
+		for (let q = 0; q < S; q++) { const l = Math.hypot(sum[3 * q], sum[3 * q + 1], sum[3 * q + 2]) || 1; sum[3 * q] /= l; sum[3 * q + 1] /= l; sum[3 * q + 2] /= l; }
+		// anchor at the member nearest the centroid (a scattered group's centroid can sit in open ocean); spread = mean
+		// chord to the centre (within 4% of the mean angle out to 1 rad, and no acos per point)
+		const best = new Float64Array(S).fill(-2), at = new Int32Array(S).fill(-1), dsum = new Float64Array(S);
+		for (let i = 0; i < N; i++) {
+			if (i % SLICE === 0 && N > SLICE) { await breathe(); if (gen0 !== labelGen || !alive) return; }
+			fill(i);
+			const lo = L0[2 * i], la = L0[2 * i + 1], cb = COSLA[la], x = cb * COSLO[lo], y = cb * SINLO[lo], z = SINLA[la];
+			for (let k = 0; k < 5; k++) {
+				const q = slots[k]; if (q < 0 || n[q] < min[q]) continue;
+				const d = x * sum[3 * q] + y * sum[3 * q + 1] + z * sum[3 * q + 2];
+				dsum[q] += Math.sqrt(Math.max(0, 2 - 2 * d));
+				if (d > best[q]) { best[q] = d; at[q] = i; }
 			}
+		}
+		labelSets = levels.map((L, k) => {
 			const out = [];
-			for (let g = 0; g < G; g++) {
+			for (let g = 0; g < Gs[k]; g++) {
 				// names[g] is null at the species list's NONE gap (speciesBytes 4), which counts every unnamed point
-				if (n[g] < L.min || at[g] < 0 || L.names[g] == null || SKIP.test(L.names[g])) continue;
-				const i = at[g];
-				out.push({ text: L.names[g], cls: L.cls, n: n[g], spread: dsum[g] / n[g], p: [xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2]] });
+				const q = off[k] + g;
+				if (n[q] < L.min || at[q] < 0 || L.names[g] == null || SKIP.test(L.names[g])) continue;
+				const i = at[q];
+				out.push({ text: L.names[g], cls: L.cls, n: n[q], spread: dsum[q] / n[q], p: toXyz(L0[2 * i], L0[2 * i + 1]) });
 			}
 			out.sort((a, b) => b.n - a.n);
 			return out;
@@ -746,11 +779,11 @@ void main() {
 	}
 	function nearest(cx, cy) {
 		const p = screenToWorld(cx, cy); if (!p || !N) return -1;
-		return nearestIn(p, xyz, cellStart, cellIdx, (i) => hasSel && !sel[i]);
+		return nearestIn(p, LL, cellStart, cellIdx, (i) => hasSel && !sel[i]);
 	}
 	function nearestAsv(cx, cy) {
 		const p = screenToWorld(cx, cy); if (!p) return -1;
-		return nearestIn(p, asv.xyz, asv.cellStart, asv.cellIdx, (i) => !asv.runOn[asv.run[i]]);
+		return nearestIn(p, asv.ll, asv.cellStart, asv.cellIdx, (i) => !asv.runOn[asv.run[i]]);
 	}
 	function placeTip(tip, cx, cy) {
 		tip.style.left = cx + 'px'; tip.style.top = cy + 'px'; tip.style.transform = 'translate(14px, 14px)'; tip.hidden = false;
@@ -781,7 +814,7 @@ void main() {
 			if (i < 0) { tip.hidden = true; return; }
 			// two lines: genus + species, then the taxon at the rank the globe is coloured by (family when that rank is
 			// genus or species, which the first line already names)
-			const g = meta.genera[gen[i]], sp = meta.species[spc[i]], gr = meta.groups[grp[i]] || 'other';
+			const g = meta.genera[gen[T(i)]], sp = meta.species[spc[T(i)]], gr = meta.groups[grp[i]] || 'other';
 			tip.innerHTML = '<div class="g"></div><div class="m"></div>';
 			tip.children[0].textContent = sp || (g ? g + ' sp.' : 'Unclassified');
 			let second = gr.replace(' · ', ' › ');
@@ -801,7 +834,7 @@ void main() {
 
 	// ---------- taxa: rank codes per reference, the picker's view
 	// rank 0 domain (from the group), 1-4 phylum..family (ranks.bin), 5 genus, 6 species (tax.bin); NONE = unranked
-	const rankCode = (r, i) => r === 0 ? domIx[grp[i]] : r <= 4 ? rankArr[r - 1][i] : r === 5 ? gen[i] : spc[i];
+	const rankCode = (r, i) => r === 0 ? domIx[grp[i]] : r <= 4 ? rankArr[r - 1][T(i)] : r === 5 ? gen[T(i)] : spc[T(i)];
 	function lineageOf(i) {
 		const out = [];
 		for (let r = 0; r < rankNames.length; r++) { const c = rankCode(r, i); if (c !== NONE && rankNames[r][c] != null) out.push({ rank: r, code: c, name: rankNames[r][c] }); }
@@ -811,9 +844,13 @@ void main() {
 	let byName = null;
 	function namesIndex() {
 		byName = new Map();
+		// with per-record taxonomy, ranks below domain are counted over the records, each weighted by its points
+		let per = null;
+		if (rec) { per = new Int32Array(spc.length); for (let i = 0; i < N; i++) per[rec[i]]++; }
 		rankNames.forEach((names, r) => {
 			const n = new Int32Array(names.length);
-			for (let i = 0; i < N; i++) { const c = rankCode(r, i); if (c !== NONE) n[c]++; }
+			if (per && r > 0) for (let j = 0; j < per.length; j++) { const c = r <= 4 ? rankArr[r - 1][j] : r === 5 ? gen[j] : spc[j]; if (c !== NONE) n[c] += per[j]; }
+			else for (let i = 0; i < N; i++) { const c = rankCode(r, i); if (c !== NONE) n[c]++; }
 			names.forEach((name, c) => {
 				if (name == null) return;
 				const k = name.toLowerCase();
@@ -861,7 +898,7 @@ void main() {
 		const counts = new Map();
 		let members = 0;
 		for (let i = 0; i < N; i++) {
-			const inside = (!filter || rankCode(filter.rank, i) === filter.code) && (trait < 0 || (((traits[i] >> trait) & 1) === 1) !== traitNeg);
+			const inside = (!filter || rankCode(filter.rank, i) === filter.code) && (trait < 0 || (((traits[T(i)] >> trait) & 1) === 1) !== traitNeg);
 			sel[i] = inside ? 1 : 0;
 			if (!inside) continue;
 			members++;
@@ -1002,7 +1039,7 @@ void main() {
 		for (let j = 0; j < n; j++) {
 			const q = toXyz(lon[j], lat[j]);
 			let r = -1;
-			for (const deg of [0.5, 2, 8, 30, 180]) { r = nearestWithin(q, S.xyz, S.start, S.idx, deg * Math.PI / 180, () => false); if (r >= 0) break; }
+			for (const deg of [0.5, 2, 8, 30, 180]) { r = nearestWithin(q, S.ll, S.start, S.idx, deg * Math.PI / 180, () => false); if (r >= 0) break; }
 			asv.ref[j] = Math.max(0, r);
 		}
 		asv.layouts = { similarity: null };
@@ -1053,21 +1090,20 @@ void main() {
 	}
 	// an ASV's position in a layout: its own placement on the similarity map, its nearest reference's elsewhere
 	function asvLayout(name) {
-		const n = asv.n, L = layouts[name], lon = new Uint16Array(n), lat = new Uint16Array(n), ll = new Uint16Array(2 * n);
+		const n = asv.n, L = layouts[name], ll = new Uint16Array(2 * n);
 		for (let j = 0; j < n; j++) {
-			lon[j] = name === 'similarity' ? asv.lon[j] : L.lon[asv.ref[j]]; lat[j] = name === 'similarity' ? asv.lat[j] : L.lat[asv.ref[j]];
-			ll[2 * j] = lon[j]; ll[2 * j + 1] = lat[j];
+			ll[2 * j] = name === 'similarity' ? asv.lon[j] : L.ll[2 * asv.ref[j]]; ll[2 * j + 1] = name === 'similarity' ? asv.lat[j] : L.ll[2 * asv.ref[j] + 1];
 		}
 		const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, ll, gl.STATIC_DRAW);
-		const xyzA = new Float32Array(3 * n), [start, idx] = cellIndex(lon, lat, n, xyzA);
-		asv.layouts[name] = { buf, xyz: xyzA, start, idx };
+		const [start, idx] = cellIndex(ll, n);
+		asv.layouts[name] = { buf, ll, start, idx };
 	}
 	function bindAsvLayout(name) {
 		const A = asv.layouts[name]; if (!A) return;
 		gl.bindVertexArray(asv.vao);
 		const loc = gl.getAttribLocation(asvProg, 'aLL');
 		gl.bindBuffer(gl.ARRAY_BUFFER, A.buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.UNSIGNED_SHORT, true, 0, 0);
-		asv.xyz = A.xyz; asv.cellStart = A.start; asv.cellIdx = A.idx;
+		asv.ll = A.ll; asv.cellStart = A.start; asv.cellIdx = A.idx;
 		dirty = true;
 	}
 	// an ASV shows when its run is on and its lineage names the picker's taxon
@@ -1186,11 +1222,13 @@ void main() {
 	// where a taxon sits in a layout: its member nearest the centroid, as [lon, lat] in degrees
 	function anchorOf(name, layout) {
 		const hit = showFind(name), L = layouts[layout]; if (!hit || !L) return null;
-		const { rank, code } = hit[hit.length - 1], P = L.xyz, c = [0, 0, 0];
-		for (let i = 0; i < N; i++) if (rankCode(rank, i) === code) { c[0] += P[3 * i]; c[1] += P[3 * i + 1]; c[2] += P[3 * i + 2]; }
+		const { rank, code } = hit[hit.length - 1], P = L.ll, c = [0, 0, 0];
+		for (let i = 0; i < N; i++) if (rankCode(rank, i) === code) { const q = toXyz(P[2 * i], P[2 * i + 1]); c[0] += q[0]; c[1] += q[1]; c[2] += q[2]; }
 		let best = -Infinity, at = -1;
-		for (let i = 0; i < N; i++) if (rankCode(rank, i) === code) { const d = P[3 * i] * c[0] + P[3 * i + 1] * c[1] + P[3 * i + 2] * c[2]; if (d > best) { best = d; at = i; } }
-		return at < 0 ? null : [Math.atan2(P[3 * at + 1], P[3 * at]) / RAD, Math.asin(Math.max(-1, Math.min(1, P[3 * at + 2]))) / RAD];
+		for (let i = 0; i < N; i++) if (rankCode(rank, i) === code) { const d = dotLL(P, i, c[0], c[1], c[2]); if (d > best) { best = d; at = i; } }
+		if (at < 0) return null;
+		const q = toXyz(P[2 * at], P[2 * at + 1]);
+		return [Math.atan2(q[1], q[0]) / RAD, Math.asin(Math.max(-1, Math.min(1, q[2]))) / RAD];
 	}
 	async function initShow() {
 		const r = await fetch(show.url); if (!r.ok) throw new Error(`${r.status}`);
@@ -1249,32 +1287,38 @@ void main() {
 		// positions + group (5 bytes per sequence), streamed for a progress count
 		const bres = await fetch(url('pos.bin'));
 		if (!bres.ok) throw new Error('data files missing');
-		const total = 5 * N, reader = bres.body.getReader(), parts = []; let got = 0;
+		// read straight into one buffer (no second copy of the chunks)
+		const total = 5 * N, reader = bres.body.getReader(), ab = new ArrayBuffer(total), dst = new Uint8Array(ab); let got = 0;
 		for (;;) {
 			const { done, value } = await reader.read(); if (done) break;
 			if (!alive) { reader.cancel(); return; }
-			parts.push(value); got += value.length;
+			if (got + value.length > total) { reader.cancel(); throw new Error('data file has the wrong size'); }
+			dst.set(value, got); got += value.length;
 			$('loading').textContent = `Loading ${N.toLocaleString()} ${unit}… ${Math.min(100, Math.round(100 * got / total))}%`;
 		}
-		const ab = await new Blob(parts).arrayBuffer();
-		if (ab.byteLength !== 5 * N) throw new Error('data file has the wrong size');
+		if (got !== total) throw new Error('data file has the wrong size');
 		grp = new Uint8Array(ab, 4 * N, N);
 		$('loading').textContent = 'Loading the taxonomy…';
 		const sculptReq = fetchBin('layout_sculpt.bin').catch(() => null);
 		const ranksReq = fetchBin('ranks.bin');
-		const tx = await fetchBin('tax.bin');
+		const recReq = meta.records ? fetchBin('records.bin') : null;
+		const tx = await fetchBin('tax.bin'), M = meta.records || N;  // taxonomy rows: per point, or per record
 		const sb4 = meta.speciesBytes === 4;
-		if (tx.length !== (sb4 ? 8 : 6) * N) throw new Error('taxonomy file has the wrong size');
+		if (tx.length !== (sb4 ? 8 : 6) * M) throw new Error('taxonomy file has the wrong size');
+		if (recReq) {
+			const rb = await recReq;
+			if (rb.length !== 4 * N) throw new Error('record file has the wrong size');
+			rec = new Uint32Array(rb.buffer, 0, N);
+		}
 		if (!alive) return;
-		gen = new Uint16Array(tx.buffer, 0, N); lin = new Uint16Array(tx.buffer, 2 * N, N);
+		gen = new Uint16Array(tx.buffer, 0, M); lin = new Uint16Array(tx.buffer, 2 * M, M);
 		if (sb4) {
 			// more species than uint16 holds (GTDB): uint32 codes, 2^32-1 = none. Codes from 65535 up move up one and
 			// 65535 becomes none, so every NONE check keeps working; the species list gets a gap at 65535 to match.
-			const raw = new Uint32Array(tx.buffer, 4 * N, N);
-			spc = new Uint32Array(N);
-			for (let i = 0; i < N; i++) { const c = raw[i]; spc[i] = c === 0xffffffff ? NONE : c >= NONE ? c + 1 : c; }
+			spc = new Uint32Array(tx.buffer, 4 * M, M);  // rewritten in place
+			for (let i = 0; i < M; i++) { const c = spc[i]; spc[i] = c === 0xffffffff ? NONE : c >= NONE ? c + 1 : c; }
 			if (meta.species.length >= NONE) meta.species.splice(NONE, 0, null);
-		} else spc = new Uint16Array(tx.buffer, 4 * N, N);
+		} else spc = new Uint16Array(tx.buffer, 4 * M, M);
 		sel = new Uint8Array(N);
 		const ng = meta.groups.length;
 		const doms = [...new Set(meta.groups.map((g) => g.split(' · ')[0]))];
@@ -1303,8 +1347,8 @@ void main() {
 		// coloured by class (TaxonPicker's default), so it is coloured that way before it first shows.
 		const rk = await ranksReq;
 		if (!alive) return;
-		if (rk.length !== 8 * N) throw new Error('rank file has the wrong size');
-		rankArr = [0, 1, 2, 3].map((k) => new Uint16Array(rk.buffer, 2 * k * N, N));
+		if (rk.length !== 8 * M) throw new Error('rank file has the wrong size');
+		rankArr = [0, 1, 2, 3].map((k) => new Uint16Array(rk.buffer, 2 * k * M, M));
 		const R = meta.ranks;
 		rankNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
 		// Highlight: genome traits (traits.bin, GTDB) and taxonomic disagreements (flags.bin, the label checks)
@@ -1312,7 +1356,7 @@ void main() {
 		selEl.options[0].textContent = `All ${unit}`;
 		if (meta.traits?.length) {
 			const tb = await fetchBin('traits.bin').catch(() => null);
-			if (tb && tb.length === N) {
+			if (tb && tb.length === M) {
 				traits = tb;
 				for (const [k, name] of meta.traits.entries()) {
 					selEl.add(new Option(TRAIT_LABEL[name] || name, String(k)));

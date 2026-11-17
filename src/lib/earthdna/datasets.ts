@@ -9,6 +9,8 @@
  *        /data/web/earthdna-ref/gtdb226/ on arbutus. A sample: 6.5% of the t-SNE reference + 1.5M projected fragments.
  * gtdb-full: every fragment in the GTDB t-SNE reference (10.5M, earthdna pipeline/gtdb_globe_set.py --ref-shown 1
  *        --extra 0), nginx from /data/web/earthdna-ref/gtdb226full/.
+ * gtdb-all: all 35.1M fragments (the 10.5M reference + 24.6M projected; earthdna pipeline/pack_gtdb_all.py), taxonomy
+ *        once per genome (records.bin), nginx from /data/web/earthdna-ref/gtdb226all/.
  * silva-ref, silva-parc: all of SILVA 144 SSURef and SSUParc (earthdna SSURef / Parc builds), served by nginx
  *        like gtdb from /data/web/earthdna-ref/silva144-{ssuref,parc}/. Separate maps from NR99, so the runs'
  *        placements (made against silva144-2) don't belong on them.
@@ -100,7 +102,7 @@ export const DATASETS: Dataset[] = [
 		preview: '/earthdna/previews/gtdb.webp',
 		method: '5-mer composition',
 		family: 'gtdb',
-		variant: 'Sample (3.9M, 75 MB)'
+		variant: '11% (3.9M, 75 MB)'
 	},
 	{
 		slug: 'gtdb-full',
@@ -115,7 +117,22 @@ export const DATASETS: Dataset[] = [
 		preview: '/earthdna/previews/gtdb.webp',
 		method: '5-mer composition',
 		family: 'gtdb',
-		variant: 'Whole t-SNE (10.5M, 200 MB)'
+		variant: '30% (10.5M, 200 MB)'
+	},
+	{
+		slug: 'gtdb-all',
+		name: 'Genomes',
+		base: '/earthdna/gtdb226all',
+		version: 'gtdb226-all-1',
+		release: null,
+		count: 35146244,
+		unit: ['fragment', 'fragments'],
+		blurb: 'All 35 million 10 kb fragments of the GTDB r226 species representatives: the t-SNE reference plus every other fragment projected onto it. A 400 MB download and about 1 GB of memory: desktop only.',
+		source: '10 kb fragments of GTDB r226 species-representative genomes (all of them: the t-SNE reference + projected)',
+		preview: '/earthdna/previews/gtdb.webp',
+		method: '5-mer composition',
+		family: 'gtdb',
+		variant: '100% (35.1M, 400 MB)'
 	},
 	{
 		slug: 'models',
