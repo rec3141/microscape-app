@@ -111,6 +111,11 @@
 .earthdna #loading { position: absolute; inset: 0; display: grid; place-items: center; z-index: 4; color: var(--muted); font-size: 0.9rem; pointer-events: none; }
 .earthdna #loading[hidden] { display: none; }
 .earthdna #hint { position: absolute; z-index: 1; right: 12px; bottom: 12px; font-size: 0.72rem; color: var(--muted); text-align: right; line-height: 1.5; }
+/* &ui=0 (and shows): the globe alone, for a projector or a dome */
+.earthdna.clean { background: #000; }
+.earthdna.clean .leftcol, .earthdna.clean #runcard, .earthdna.clean #hint, .earthdna.clean #tip { display: none; }
+.earthdna.clean .stage { left: 0; }
+.earthdna.clean canvas#gl { cursor: none; }
 /* Phones: the globe takes the top of the panel and the cards stack below it instead of floating over it. */
 @media (max-width: 640px) {
 	.earthdna { height: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
