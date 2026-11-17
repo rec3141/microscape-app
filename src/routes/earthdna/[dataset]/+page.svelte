@@ -101,6 +101,7 @@
 			<div class="seg" role="group" aria-label="Projection">
 				<button id="vGlobe" aria-pressed="true">Globe</button>
 				<button id="vFlat" aria-pressed="false">Equal-area</button>
+				<button id="vDome" aria-pressed="false" title="Fisheye from inside the sphere (a dome master: the front of the dome at the bottom)">Dome</button>
 			</div>
 			<button class="btn toggle" id="spin" aria-pressed="false">Spin</button>
 			<button class="btn toggle" id="labelsBtn" aria-pressed="true">Labels</button>
