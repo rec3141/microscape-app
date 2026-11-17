@@ -422,40 +422,66 @@ void main() {
 	// ---------- place names: domain, phylum, family, genus; each shown once its territory is big enough on screen
 	let labelSets = [], labelPool = [], labelsOn = true;
 	const SKIP = /^(|\?|other|incertae sedis|uncultured.*|unidentified.*|unclassified.*|metagenome.*|.*environmental sample.*)$/i;
-	function buildLabels() {
+	// built in slices of points between frames, so a big globe can be turned while its names are worked out; a newer
+	// call (another layout) abandons an older one
+	let labelGen = 0;
+	const SLICE = 300000, breathe = () => new Promise((r) => setTimeout(r, 0));
+	async function buildLabels() {
+		const gen0 = ++labelGen, L0 = LL;
+		labelSets = []; dirty = true;
 		const domName = meta.groups.map((g) => g.split(' · ')[0]);
 		const doms = [...new Set(domName)], dIx = domName.map((d) => doms.indexOf(d));
 		const levels = [
-			{ cls: 'L0', names: doms, code: (i) => dIx[grp[i]] ?? -1, min: 1000 },
-			{ cls: 'L1', names: meta.groups.map((g) => g.split(' · ')[1] || g), code: (i) => grp[i], min: 200 },
-			{ cls: 'L2', names: meta.lineages, code: (i) => lin[T(i)], min: 40 },
-			{ cls: 'L3', names: meta.genera, code: (i) => gen[T(i)], min: 25 },
-			{ cls: 'L4', names: meta.species, code: (i) => spc[T(i)], min: 5 }
+			{ cls: 'L0', names: doms, min: 1000 },
+			{ cls: 'L1', names: meta.groups.map((g) => g.split(' · ')[1] || g), min: 200 },
+			{ cls: 'L2', names: meta.lineages, min: 40 },
+			{ cls: 'L3', names: meta.genera, min: 25 },
+			{ cls: 'L4', names: meta.species, min: 5 }
 		];
-		labelSets = levels.map((L) => {
-			const G = L.names.length, sum = new Float64Array(3 * G), n = new Int32Array(G);
-			for (let i = 0; i < N; i++) {
-				const g = L.code(i); if (g < 0 || g >= G) continue;
-				const lo = LL[2 * i], cb = COSLA[LL[2 * i + 1]];
-				n[g]++; sum[3 * g] += cb * COSLO[lo]; sum[3 * g + 1] += cb * SINLO[lo]; sum[3 * g + 2] += SINLA[LL[2 * i + 1]];
+		// all levels in two passes over the points (centroids, then the member nearest each), in flat arrays: level k's
+		// taxon g is slot off[k] + g, and each point's five slots are read once per pass
+		const K = levels.length, Gs = levels.map((L) => L.names.length), off = [0];
+		for (let k = 0; k < K; k++) off.push(off[k] + Gs[k]);
+		const S = off[K], dI = Int32Array.from(dIx), R = rec, NG = Gs[1];
+		const [o2, o3, o4] = [off[2], off[3], off[4]], [G2, G3, G4] = [Gs[2], Gs[3], Gs[4]];
+		const slots = new Int32Array(5);
+		function fill(i) {
+			const r = R ? R[i] : i, g = grp[i], a = lin[r], b = gen[r], c = spc[r];
+			slots[0] = g < NG ? dI[g] : -1; slots[1] = g < NG ? off[1] + g : -1;
+			slots[2] = a < G2 ? o2 + a : -1; slots[3] = b < G3 ? o3 + b : -1; slots[4] = c < G4 ? o4 + c : -1;
+		}
+		const sum = new Float64Array(3 * S), n = new Int32Array(S);
+		for (let i = 0; i < N; i++) {
+			if (i % SLICE === 0 && i && N > SLICE) { await breathe(); if (gen0 !== labelGen || !alive) return; }
+			fill(i);
+			const lo = L0[2 * i], la = L0[2 * i + 1], cb = COSLA[la], x = cb * COSLO[lo], y = cb * SINLO[lo], z = SINLA[la];
+			for (let k = 0; k < 5; k++) { const q = slots[k]; if (q < 0) continue; n[q]++; sum[3 * q] += x; sum[3 * q + 1] += y; sum[3 * q + 2] += z; }
+		}
+		const min = new Int32Array(S);
+		for (let k = 0; k < K; k++) min.fill(levels[k].min, off[k], off[k + 1]);
+		for (let q = 0; q < S; q++) { const l = Math.hypot(sum[3 * q], sum[3 * q + 1], sum[3 * q + 2]) || 1; sum[3 * q] /= l; sum[3 * q + 1] /= l; sum[3 * q + 2] /= l; }
+		// anchor at the member nearest the centroid (a scattered group's centroid can sit in open ocean); spread = mean
+		// chord to the centre (within 4% of the mean angle out to 1 rad, and no acos per point)
+		const best = new Float64Array(S).fill(-2), at = new Int32Array(S).fill(-1), dsum = new Float64Array(S);
+		for (let i = 0; i < N; i++) {
+			if (i % SLICE === 0 && N > SLICE) { await breathe(); if (gen0 !== labelGen || !alive) return; }
+			fill(i);
+			const lo = L0[2 * i], la = L0[2 * i + 1], cb = COSLA[la], x = cb * COSLO[lo], y = cb * SINLO[lo], z = SINLA[la];
+			for (let k = 0; k < 5; k++) {
+				const q = slots[k]; if (q < 0 || n[q] < min[q]) continue;
+				const d = x * sum[3 * q] + y * sum[3 * q + 1] + z * sum[3 * q + 2];
+				dsum[q] += Math.sqrt(Math.max(0, 2 - 2 * d));
+				if (d > best[q]) { best[q] = d; at[q] = i; }
 			}
-			const c = new Float64Array(3 * G);
-			for (let g = 0; g < G; g++) { const l = Math.hypot(sum[3 * g], sum[3 * g + 1], sum[3 * g + 2]) || 1; for (let k = 0; k < 3; k++) c[3 * g + k] = sum[3 * g + k] / l; }
-			// anchor at the member nearest the centroid (a scattered group's centroid can sit in open ocean); spread = mean
-			// chord to the centre (within 4% of the mean angle out to 1 rad, and no acos per point)
-			const best = new Float64Array(G).fill(-2), at = new Int32Array(G).fill(-1), dsum = new Float64Array(G);
-			for (let i = 0; i < N; i++) {
-				const g = L.code(i); if (g < 0 || g >= G || n[g] < L.min) continue;
-				const d = dotLL(LL, i, c[3 * g], c[3 * g + 1], c[3 * g + 2]);
-				dsum[g] += Math.sqrt(Math.max(0, 2 - 2 * d));
-				if (d > best[g]) { best[g] = d; at[g] = i; }
-			}
+		}
+		labelSets = levels.map((L, k) => {
 			const out = [];
-			for (let g = 0; g < G; g++) {
+			for (let g = 0; g < Gs[k]; g++) {
 				// names[g] is null at the species list's NONE gap (speciesBytes 4), which counts every unnamed point
-				if (n[g] < L.min || at[g] < 0 || L.names[g] == null || SKIP.test(L.names[g])) continue;
-				const i = at[g];
-				out.push({ text: L.names[g], cls: L.cls, n: n[g], spread: dsum[g] / n[g], p: toXyz(LL[2 * i], LL[2 * i + 1]) });
+				const q = off[k] + g;
+				if (n[q] < L.min || at[q] < 0 || L.names[g] == null || SKIP.test(L.names[g])) continue;
+				const i = at[q];
+				out.push({ text: L.names[g], cls: L.cls, n: n[q], spread: dsum[q] / n[q], p: toXyz(L0[2 * i], L0[2 * i + 1]) });
 			}
 			out.sort((a, b) => b.n - a.n);
 			return out;
@@ -818,9 +844,13 @@ void main() {
 	let byName = null;
 	function namesIndex() {
 		byName = new Map();
+		// with per-record taxonomy, ranks below domain are counted over the records, each weighted by its points
+		let per = null;
+		if (rec) { per = new Int32Array(spc.length); for (let i = 0; i < N; i++) per[rec[i]]++; }
 		rankNames.forEach((names, r) => {
 			const n = new Int32Array(names.length);
-			for (let i = 0; i < N; i++) { const c = rankCode(r, i); if (c !== NONE) n[c]++; }
+			if (per && r > 0) for (let j = 0; j < per.length; j++) { const c = r <= 4 ? rankArr[r - 1][j] : r === 5 ? gen[j] : spc[j]; if (c !== NONE) n[c] += per[j]; }
+			else for (let i = 0; i < N; i++) { const c = rankCode(r, i); if (c !== NONE) n[c]++; }
 			names.forEach((name, c) => {
 				if (name == null) return;
 				const k = name.toLowerCase();
