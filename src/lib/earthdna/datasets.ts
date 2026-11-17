@@ -7,6 +7,9 @@
  *        against (PLACE_GLOBE), so it is the only globe that shows runs.
  * gtdb:  too big for the repo; nginx serves /earthdna/gtdb226/ from
  *        /data/web/earthdna-ref/gtdb226/ on arbutus.
+ * silva-ref, silva-parc: all of SILVA 144 SSURef and SSUParc (earthdna SSURef / Parc builds), served by nginx
+ *        like gtdb from /data/web/earthdna-ref/silva144-{ssuref,parc}/. Separate maps from NR99, so the runs'
+ *        placements (made against silva144-2) don't belong on them.
  * models: in static/earthdna/models-gtdb-genus/, one 4 kb window per GTDB genus (earthdna models_set.py) laid
  *        out by each model; globe.json `models` names them and the viewer's Model picker switches between their
  *        layouts (layout_<shape>-<key>.bin). /earthdna/evo2 redirects here.
@@ -44,6 +47,32 @@ export const DATASETS: Dataset[] = [
 		blurb: 'Every SSU rRNA gene in SILVA 144 NR99, with your amplicon runs placed on the same map.',
 		source: 'SSU rRNA sequences from SILVA 144 NR99',
 		preview: '/earthdna/previews/silva.webp',
+		method: '5-mer composition'
+	},
+	{
+		slug: 'silva-ref',
+		name: 'SSU Ref',
+		base: '/earthdna/silva144-ssuref',
+		version: 'silva144-ssuref-1',
+		release: null,
+		count: 9183096,
+		unit: ['sequence', 'sequences'],
+		blurb: 'All 9.2 million SSU rRNA genes in SILVA 144 SSURef, not just the NR99 representatives: a big download (about 145 MB).',
+		source: 'SSU rRNA sequences from SILVA 144 SSURef',
+		preview: '/earthdna/previews/silva-ref.webp',
+		method: '5-mer composition'
+	},
+	{
+		slug: 'silva-parc',
+		name: 'SSU Parc',
+		base: '/earthdna/silva144-parc',
+		version: 'silva144-parc-1',
+		release: null,
+		count: 15439037,
+		unit: ['sequence', 'sequences'],
+		blurb: 'All 15.4 million SSU rRNA sequences in SILVA 144 SSUParc, short and partial ones included: a very big download (about 215 MB) for a desktop with a good GPU.',
+		source: 'SSU rRNA sequences from SILVA 144 SSUParc',
+		preview: '/earthdna/previews/silva-parc.webp',
 		method: '5-mer composition'
 	},
 	{
