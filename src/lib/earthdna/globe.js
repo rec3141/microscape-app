@@ -373,7 +373,8 @@ void main() {
 			}
 			const out = [];
 			for (let g = 0; g < G; g++) {
-				if (n[g] < L.min || at[g] < 0 || SKIP.test(L.names[g])) continue;
+				// names[g] is null at the species list's NONE gap (speciesBytes 4), which counts every unnamed point
+				if (n[g] < L.min || at[g] < 0 || L.names[g] == null || SKIP.test(L.names[g])) continue;
 				const i = at[g];
 				out.push({ text: L.names[g], cls: L.cls, n: n[g], spread: dsum[g] / n[g], p: [xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2]] });
 			}
