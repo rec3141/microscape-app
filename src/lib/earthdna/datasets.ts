@@ -100,7 +100,7 @@ export const DATASETS: Dataset[] = [
 		preview: '/earthdna/previews/gtdb.webp',
 		method: '5-mer composition',
 		family: 'gtdb',
-		variant: 'Sample (3.9M, 75 MB)'
+		variant: '11% (3.9M, 75 MB)'
 	},
 	{
 		slug: 'gtdb-full',
@@ -115,7 +115,22 @@ export const DATASETS: Dataset[] = [
 		preview: '/earthdna/previews/gtdb.webp',
 		method: '5-mer composition',
 		family: 'gtdb',
-		variant: 'Whole t-SNE (10.5M, 200 MB)'
+		variant: '30% (10.5M, 200 MB)'
+	},
+	{
+		slug: 'gtdb-all',
+		name: 'Genomes',
+		base: '/earthdna/gtdb226all',
+		version: 'gtdb226-all-1',
+		release: null,
+		count: 35146244,
+		unit: ['fragment', 'fragments'],
+		blurb: 'All 35 million 10 kb fragments of the GTDB r226 species representatives: the t-SNE reference plus every other fragment projected onto it. Desktop only.',
+		source: '10 kb fragments of GTDB r226 species-representative genomes (all of them: the t-SNE reference + projected)',
+		preview: '/earthdna/previews/gtdb.webp',
+		method: '5-mer composition',
+		family: 'gtdb',
+		variant: '100% (35.1M)'
 	},
 	{
 		slug: 'models',
