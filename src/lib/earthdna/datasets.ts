@@ -33,6 +33,10 @@ export interface Dataset {
 	method: string;
 	/** starting point size (the slider runs 0.5 to 6); sparse globes start bigger */
 	pointSize?: number;
+	/** globes of one kind share a pill (the first one's name) and a Sequences menu that picks between them */
+	family?: string;
+	/** this globe's entry in that menu */
+	variant?: string;
 }
 
 export const DATASETS: Dataset[] = [
@@ -47,7 +51,9 @@ export const DATASETS: Dataset[] = [
 		blurb: 'Every SSU rRNA gene in SILVA 144 NR99, with your amplicon runs placed on the same map.',
 		source: 'SSU rRNA sequences from SILVA 144 NR99',
 		preview: '/earthdna/previews/silva.webp',
-		method: '5-mer composition'
+		method: '5-mer composition',
+		family: 'ssu',
+		variant: 'SILVA NR99 (0.9M)'
 	},
 	{
 		slug: 'silva-ref',
@@ -60,7 +66,9 @@ export const DATASETS: Dataset[] = [
 		blurb: 'All 9.2 million SSU rRNA genes in SILVA 144 SSURef, not just the NR99 representatives: a big download (about 145 MB).',
 		source: 'SSU rRNA sequences from SILVA 144 SSURef',
 		preview: '/earthdna/previews/silva-ref.webp',
-		method: '5-mer composition'
+		method: '5-mer composition',
+		family: 'ssu',
+		variant: 'SILVA SSURef (9.2M, 145 MB)'
 	},
 	{
 		slug: 'silva-parc',
@@ -73,7 +81,9 @@ export const DATASETS: Dataset[] = [
 		blurb: 'All 15.4 million SSU rRNA sequences in SILVA 144 SSUParc, short and partial ones included: a very big download (about 215 MB) for a desktop with a good GPU.',
 		source: 'SSU rRNA sequences from SILVA 144 SSUParc',
 		preview: '/earthdna/previews/silva-parc.webp',
-		method: '5-mer composition'
+		method: '5-mer composition',
+		family: 'ssu',
+		variant: 'SILVA SSUParc (15.4M, 215 MB)'
 	},
 	{
 		slug: 'gtdb',
@@ -108,3 +118,9 @@ export const DATASETS: Dataset[] = [
 export const MOVED: Record<string, string> = { evo2: 'models' };
 
 export const datasetBySlug = (slug: string) => DATASETS.find((d) => d.slug === slug);
+
+/** the other globes in d's family, d included (just d when it has none) */
+export const familyOf = (d: Dataset) => (d.family ? DATASETS.filter((x) => x.family === d.family) : [d]);
+
+/** one globe per pill and landing card: each family's first */
+export const PILLS = DATASETS.filter((d) => familyOf(d)[0] === d);

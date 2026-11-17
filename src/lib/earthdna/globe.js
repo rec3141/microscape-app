@@ -230,7 +230,13 @@ void main() {
 	const ptVao = gl.createVertexArray();
 
 	const layouts = {};  // name -> { lon, lat, buf, W }
-	const toXyz = (lo, la) => { const a = lo / 65535 * 2 * Math.PI - Math.PI, b = la / 65535 * Math.PI - Math.PI / 2; return [Math.cos(b) * Math.cos(a), Math.cos(b) * Math.sin(a), Math.sin(b)]; };
+	// cos and sin of every uint16 longitude and latitude, so the per-point loops (millions of points) take no trig
+	const COSLO = new Float64Array(65536), SINLO = new Float64Array(65536), COSLA = new Float64Array(65536), SINLA = new Float64Array(65536);
+	for (let u = 0; u < 65536; u++) {
+		const a = u / 65535 * 2 * Math.PI - Math.PI, b = u / 65535 * Math.PI - Math.PI / 2;
+		COSLO[u] = Math.cos(a); SINLO[u] = Math.sin(a); COSLA[u] = Math.cos(b); SINLA[u] = Math.sin(b);
+	}
+	const toXyz = (lo, la) => [COSLA[la] * COSLO[lo], COSLA[la] * SINLO[lo], SINLA[la]];
 	const apply = (W, p) => [0, 1, 2].map((r) => W[3 * r] * p[0] + W[3 * r + 1] * p[1] + W[3 * r + 2] * p[2]);
 	const toLL = (p) => [Math.round((Math.atan2(p[1], p[0]) + Math.PI) / (2 * Math.PI) * 65535), Math.round((Math.asin(Math.max(-1, Math.min(1, p[2]))) + Math.PI / 2) / Math.PI * 65535)];
 	// Rotation that lays the domains along the equator: the pole is the axis the three domain centres sit
@@ -238,7 +244,10 @@ void main() {
 	// turned to longitude 0.
 	function equatorRotation(lon, lat) {
 		const D = Math.max(...domIx) + 1, sum = new Float64Array(3 * D), n = new Int32Array(D);
-		for (let i = 0; i < N; i++) { const d = domIx[grp[i]], p = toXyz(lon[i], lat[i]); n[d]++; for (let k = 0; k < 3; k++) sum[3 * d + k] += p[k]; }
+		for (let i = 0; i < N; i++) {
+			const d = domIx[grp[i]], cb = COSLA[lat[i]]; n[d]++;
+			sum[3 * d] += cb * COSLO[lon[i]]; sum[3 * d + 1] += cb * SINLO[lon[i]]; sum[3 * d + 2] += SINLA[lat[i]];
+		}
 		const c = [];
 		for (let d = 0; d < D; d++) { const l = Math.hypot(sum[3 * d], sum[3 * d + 1], sum[3 * d + 2]); if (n[d] && l > 0) c.push([sum[3 * d] / l, sum[3 * d + 1] / l, sum[3 * d + 2] / l]); }
 		const M = [0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -271,11 +280,19 @@ void main() {
 		const k = [0, 1, 2].reduce((m, i) => (a[4 * i] < a[4 * m] ? i : m), 0);
 		return [V[k], V[3 + k], V[6 + k]];
 	}
+	// a layout turned onto the equator: uint16 lon, lat (and their GL buffer) plus each point's unit vector, xyz
 	function makeLayout(lon0, lat0) {
 		const W = equatorRotation(lon0, lat0), lon = new Uint16Array(N), lat = new Uint16Array(N), ll = new Uint16Array(2 * N);
-		for (let i = 0; i < N; i++) { const [a, b] = toLL(apply(W, toXyz(lon0[i], lat0[i]))); lon[i] = a; lat[i] = b; ll[2 * i] = a; ll[2 * i + 1] = b; }
+		const xyz = new Float32Array(3 * N), K1 = 65535 / (2 * Math.PI), K2 = 65535 / Math.PI;
+		const [w0, w1, w2, w3, w4, w5, w6, w7, w8] = W;
+		for (let i = 0; i < N; i++) {
+			const cb = COSLA[lat0[i]], x = cb * COSLO[lon0[i]], y = cb * SINLO[lon0[i]], z = SINLA[lat0[i]];
+			const X = w0 * x + w1 * y + w2 * z, Y = w3 * x + w4 * y + w5 * z, Z = w6 * x + w7 * y + w8 * z;
+			const a = Math.round((Math.atan2(Y, X) + Math.PI) * K1), b = Math.round((Math.asin(Z > 1 ? 1 : Z < -1 ? -1 : Z) + Math.PI / 2) * K2);
+			lon[i] = a; lat[i] = b; ll[2 * i] = a; ll[2 * i + 1] = b; xyz[3 * i] = X; xyz[3 * i + 1] = Y; xyz[3 * i + 2] = Z;
+		}
 		const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, ll, gl.STATIC_DRAW);
-		return { lon, lat, buf: b, W };
+		return { lon, lat, buf: b, W, xyz };
 	}
 	function bindLayouts(from, to) {
 		gl.bindVertexArray(ptVao);
@@ -284,10 +301,15 @@ void main() {
 			gl.bindBuffer(gl.ARRAY_BUFFER, L.buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.UNSIGNED_SHORT, true, 0, 0);
 		}
 	}
+	// the similarity map (pos.bin), turned onto the equator the first time it is shown or runs are snapped to it:
+	// the page opens on the sculpted layout, and each turn costs a pass over every point
+	let simSrc = null;
+	function similarity() {
+		if (!layouts.similarity) layouts.similarity = makeLayout(new Uint16Array(simSrc, 0, N), new Uint16Array(simSrc, 2 * N, N));
+		return layouts.similarity;
+	}
 	function upload(buf) {
-		gl.bindVertexArray(ptVao);
-		layouts.similarity = makeLayout(new Uint16Array(buf, 0, N), new Uint16Array(buf, 2 * N, N));
-		bindLayouts(layouts.similarity, layouts.similarity);
+		simSrc = buf;
 		gl.bindVertexArray(ptVao);
 		let loc;
 		cidx = Uint32Array.from(grp);  // colour slot per reference; view() rewrites it
@@ -297,15 +319,12 @@ void main() {
 		loc = gl.getAttribLocation(ptProg, 'aSel'); gl.enableVertexAttribArray(loc); gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
 		flagBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, flagBuf); gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(N), gl.STATIC_DRAW);
 		loc = gl.getAttribLocation(ptProg, 'aFlag'); gl.enableVertexAttribArray(loc); gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
-		const S = layouts.similarity;
-		S.xyz = new Float32Array(3 * N); [S.start, S.idx] = cellIndex(S.lon, S.lat, N, S.xyz);
 	}
-	// unit vectors + 1-degree lon/lat cells for hover lookup
-	function cellIndex(lon, lat, n, out) {
+	// 1-degree lon/lat cells for hover lookup; out gets the unit vectors unless the caller has them (fill false)
+	function cellIndex(lon, lat, n, out, fill = true) {
 		const cell = new Int32Array(n), cnt = new Int32Array(360 * 180 + 1);
 		for (let i = 0; i < n; i++) {
-			const lo = lon[i] / 65535 * 2 * Math.PI - Math.PI, la = lat[i] / 65535 * Math.PI - Math.PI / 2;
-			out[3 * i] = Math.cos(la) * Math.cos(lo); out[3 * i + 1] = Math.cos(la) * Math.sin(lo); out[3 * i + 2] = Math.sin(la);
+			if (fill) { const cb = COSLA[lat[i]]; out[3 * i] = cb * COSLO[lon[i]]; out[3 * i + 1] = cb * SINLO[lon[i]]; out[3 * i + 2] = SINLA[lat[i]]; }
 			const c = Math.min(179, Math.floor(lat[i] / 65536 * 180)) * 360 + Math.min(359, Math.floor(lon[i] / 65536 * 360));
 			cell[i] = c; cnt[c + 1]++;
 		}
@@ -314,10 +333,16 @@ void main() {
 		for (let i = 0; i < n; i++) idx[cur[cell[i]]++] = i;
 		return [start, idx];
 	}
-	function buildIndex(lon, lat) {
-		xyz = xyz || new Float32Array(3 * N);
-		[cellStart, cellIdx] = cellIndex(lon, lat, N, xyz);
+	function buildIndex(L) {
+		xyz = L.xyz;
+		[cellStart, cellIdx] = cellIndex(L.lon, L.lat, N, xyz, false);
 		buildLabels();
+	}
+	// the similarity map's cell index, which the runs' ASVs are snapped against; built the first time runs load
+	function similarityIndex() {
+		const S = similarity();
+		if (!S.start) [S.start, S.idx] = cellIndex(S.lon, S.lat, N, S.xyz, false);
+		return S;
 	}
 	// nearest point within 8 px of the cursor, from a cell index
 	function nearestIn(p, pts, start, idx, skip) {
@@ -363,12 +388,13 @@ void main() {
 			for (let i = 0; i < N; i++) { const g = L.code(i); if (g < 0 || g >= G) continue; n[g]++; sum[3 * g] += xyz[3 * i]; sum[3 * g + 1] += xyz[3 * i + 1]; sum[3 * g + 2] += xyz[3 * i + 2]; }
 			const c = new Float64Array(3 * G);
 			for (let g = 0; g < G; g++) { const l = Math.hypot(sum[3 * g], sum[3 * g + 1], sum[3 * g + 2]) || 1; for (let k = 0; k < 3; k++) c[3 * g + k] = sum[3 * g + k] / l; }
-			// anchor at the member nearest the centroid (a scattered group's centroid can sit in open ocean); spread = mean angle
+			// anchor at the member nearest the centroid (a scattered group's centroid can sit in open ocean); spread = mean
+			// chord to the centre (within 4% of the mean angle out to 1 rad, and no acos per point)
 			const best = new Float64Array(G).fill(-2), at = new Int32Array(G).fill(-1), dsum = new Float64Array(G);
 			for (let i = 0; i < N; i++) {
 				const g = L.code(i); if (g < 0 || g >= G || n[g] < L.min) continue;
 				const d = xyz[3 * i] * c[3 * g] + xyz[3 * i + 1] * c[3 * g + 1] + xyz[3 * i + 2] * c[3 * g + 2];
-				dsum[g] += Math.acos(Math.max(-1, Math.min(1, d)));
+				dsum[g] += Math.sqrt(Math.max(0, 2 - 2 * d));
 				if (d > best[g]) { best[g] = d; at[g] = i; }
 			}
 			const out = [];
@@ -455,6 +481,7 @@ void main() {
 	async function showLayout(s, m = model) {
 		const name = m ? `${s}-${m}` : s;
 		if (name === current || morph) return false;
+		if (name === 'similarity') similarity();
 		if (!layouts[name]) {
 			$('status').textContent = 'Loading the layout…';
 			let b;
@@ -482,7 +509,7 @@ void main() {
 		gl.uniform1f(gl.getUniformLocation(bgProg, 'uFlat'), flat ? 1 : 0);
 		gl.uniform2f(gl.getUniformLocation(bgProg, 'uScale'), sc[0], sc[1]);
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-		if (!layouts.similarity) return;  // N is known before the buffers are
+		if (!layouts[current]) return;  // N is known before the buffers are
 		gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
 		gl.useProgram(ptProg); gl.bindVertexArray(ptVao);
@@ -533,7 +560,7 @@ void main() {
 			const u = Math.min(1, (t - morph.t0) / morph.dur);
 			morph.t = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
 			dirty = true;
-			if (u >= 1) { const L = morph.to; morph = null; bindLayouts(L, L); buildIndex(L.lon, L.lat); if (asv) bindAsvLayout(current); }
+			if (u >= 1) { const L = morph.to; morph = null; bindLayouts(L, L); buildIndex(L); if (asv) bindAsvLayout(current); }
 		}
 		if (dirty) { draw(); placeLabels(); dirty = false; }
 		raf = requestAnimationFrame(frame);
@@ -836,7 +863,7 @@ void main() {
 			return out;
 		});
 		// placements are on the similarity map; turn them with it onto the equator-aligned frame
-		const Ws = layouts.similarity.W;
+		const Ws = similarity().W;
 		for (let j = 0; j < n; j++) { const [a, b] = toLL(apply(Ws, toXyz(lon[j], lat[j]))); lon[j] = a; lat[j] = b; }
 		const sz = new Uint8Array(n), col = new Uint8Array(3 * n);
 		for (let j = 0; j < n; j++) {
@@ -852,7 +879,7 @@ void main() {
 			else gl.vertexAttribIPointer(loc, 1, gl.UNSIGNED_BYTE, 0, 0);
 		}
 		// each ASV's nearest reference on the similarity map, so it can follow the references into other layouts
-		const S = layouts.similarity;
+		const S = similarityIndex();
 		asv.ref = new Int32Array(n);
 		for (let j = 0; j < n; j++) {
 			const q = toXyz(lon[j], lat[j]);
@@ -1054,7 +1081,7 @@ void main() {
 		if (sb && sb.length === 4 * N) {
 			layouts.sculpt = makeLayout(new Uint16Array(sb.buffer, 0, N), new Uint16Array(sb.buffer, 2 * N, N));
 			bindLayouts(layouts.sculpt, layouts.sculpt);
-		} else current = shape = 'similarity';
+		} else { current = shape = 'similarity'; similarity(); bindLayouts(layouts.similarity, layouts.similarity); }
 		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === current ? 'true' : 'false');
 		// Model: which embedding placed the points (the DNA-model globe); the first entry's layouts carry no suffix
 		if (meta.models?.length > 1) {
@@ -1063,7 +1090,7 @@ void main() {
 			$('modelRow').hidden = false;
 			on(mEl, 'change', async () => { if (!(await showLayout(shape, mEl.value))) mEl.value = model; });
 		}
-		buildIndex(layouts[current].lon, layouts[current].lat);
+		buildIndex(layouts[current]);
 		// rank codes for the picker: domain (from the groups), phylum..family, genus, species. The globe opens
 		// coloured by class (TaxonPicker's default), so it is coloured that way before it first shows.
 		const rk = await ranksReq;

@@ -3,7 +3,7 @@
 	import { mountGlobe } from '$lib/earthdna/globe.js';
 	import TaxonPicker from '$lib/earthdna/TaxonPicker.svelte';
 	import type { RankedTaxon, Taxa, Taxon } from '$lib/earthdna/taxa';
-	import { DATASETS, type Dataset } from '$lib/earthdna/datasets';
+	import { PILLS, familyOf, type Dataset } from '$lib/earthdna/datasets';
 	import '../earthdna.css';
 
 	interface GlobeRun {
@@ -63,10 +63,25 @@
 		<div>
 			<h1><a href="/earthdna" class="home">EarthDNA</a></h1>
 			<nav class="globes" aria-label="Globes">
-				{#each DATASETS as d (d.slug)}
-					<a href="/earthdna/{d.slug}" data-sveltekit-reload aria-current={d.slug === ds.slug ? 'page' : undefined}>{d.name}</a>
+				{#each PILLS as d (d.slug)}
+					<a href="/earthdna/{d.slug}" data-sveltekit-reload aria-current={familyOf(ds).includes(d) ? 'page' : undefined}>{d.name}</a>
 				{/each}
 			</nav>
+			{#if familyOf(ds).length > 1}
+				<!-- the family's globes; each is its own page, so picking one loads it -->
+				<div class="row">
+					<label class="rankpick highlight" for="variant">Sequences
+						<select id="variant" value={ds.slug} onchange={(e) => location.assign(`/earthdna/${e.currentTarget.value}`)}>
+							{#each familyOf(ds) as v (v.slug)}<option value={v.slug}>{v.variant ?? v.name}</option>{/each}
+						</select>
+					</label>
+				</div>
+			{/if}
+			<div class="row" id="modelRow" hidden>
+				<label class="rankpick highlight" for="model">Model
+					<select id="model"></select>
+				</label>
+			</div>
 			<p class="sub">
 				<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}, placed by {ds.method} with
 				spherical t-SNE (<a href="https://github.com/rec3141/fastsne" target="_blank" rel="noopener noreferrer">fastsne</a>).
@@ -92,11 +107,6 @@
 		</div>
 		<div class="row" hidden={!data.runs.length}>
 			<button class="btn" id="asvBtn" aria-pressed="false">Show amplicon runs</button>
-		</div>
-		<div class="row" id="modelRow" hidden>
-			<label class="rankpick highlight" for="model">Model
-				<select id="model"></select>
-			</label>
 		</div>
 		<div class="row">
 			<span class="rowlabel" id="shapedLabel">Shaped by</span>

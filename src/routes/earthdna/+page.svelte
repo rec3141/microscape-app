@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { DATASETS } from '$lib/earthdna/datasets';
+	import { PILLS, familyOf } from '$lib/earthdna/datasets';
 </script>
 
 <svelte:head><title>EarthDNA · microscape.app</title></svelte:head>
@@ -15,7 +15,7 @@
 	</header>
 
 	<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-		{#each DATASETS as d (d.slug)}
+		{#each PILLS as d (d.slug)}
 			<li>
 				<a
 					href="/earthdna/{d.slug}"
@@ -34,6 +34,11 @@
 						<span class="font-mono text-xs text-slate-400">{d.count.toLocaleString('en-US')} {d.unit[1]}</span>
 					</div>
 					<p class="text-sm text-slate-400">{d.blurb}</p>
+					{#if familyOf(d).length > 1}
+						<p class="text-xs text-slate-500">
+							Also under Sequences: {familyOf(d).slice(1).map((v) => v.variant ?? v.name).join(', ')}.
+						</p>
+					{/if}
 					<span class="mt-auto pt-2 text-sm text-sky-400 group-hover:underline">Open the {d.name} globe →</span>
 				</a>
 			</li>
