@@ -36,7 +36,7 @@
 					<p class="text-sm text-slate-400">{d.blurb}</p>
 					{#if familyOf(d).length > 1}
 						<p class="text-xs text-slate-500">
-							Also under Sequences: {familyOf(d).slice(1).map((v) => v.variant ?? v.name).join(', ')}.
+							Also under {d.unit[1][0].toUpperCase() + d.unit[1].slice(1)}: {familyOf(d).slice(1).map((v) => v.variant ?? v.name).join(', ')}.
 						</p>
 					{/if}
 					<span class="mt-auto pt-2 text-sm text-sky-400 group-hover:underline">Open the {d.name} globe →</span>
