@@ -653,7 +653,8 @@ void main() {
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uMix'), morph ? morph.t : 0);
 		gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, colTex);
 		gl.uniform1i(gl.getUniformLocation(ptProg, 'uColTex'), 0);
-		gl.drawArrays(gl.POINTS, 0, N);
+		// in 4M-point chunks: Firefox refuses more than 30M vertices in one draw call
+		for (let s = 0; s < N; s += 4000000) gl.drawArrays(gl.POINTS, s, Math.min(4000000, N - s));
 		if (ovShown()) {
 			gl.disable(gl.DEPTH_TEST);
 			gl.useProgram(ovProg);
