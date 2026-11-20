@@ -15,6 +15,9 @@
  * silva-ref, silva-parc: all of SILVA 144 SSURef and SSUParc (earthdna SSURef / Parc builds), served by nginx
  *        like gtdb from /data/web/earthdna-ref/silva144-{ssuref,parc}/. Separate maps from NR99, so the runs'
  *        placements (made against silva144-2) don't belong on them.
+ * motus: in static/earthdna/motus41/, one point per mOTUs-db 4.1 mOTU detected in a metagenome (earthdna
+ *        pipeline/build_motus.sh); models '' (marker-gene 5-mers) and abund (co-occurrence across metagenomes).
+ * motus-samples: in static/earthdna/motus41-samples/, one point per metagenome, similarity layout only.
  * models: in static/earthdna/models-gtdb-genus/, one 4 kb window per GTDB genus (earthdna models_set.py) laid
  *        out by each model; globe.json `models` names them and the viewer's Model picker switches between their
  *        layouts (layout_<shape>-<key>.bin). /earthdna/evo2 redirects here.
@@ -134,6 +137,34 @@ export const DATASETS: Dataset[] = [
 		method: '5-mer composition',
 		family: 'gtdb',
 		variant: '100% (35.1M, 400 MB)'
+	},
+	{
+		slug: 'motus',
+		name: 'mOTUs',
+		base: '/earthdna/motus41',
+		version: 'motus41-1',
+		release: null,
+		count: 119562,
+		unit: ['mOTU', 'mOTUs'],
+		blurb: 'Every species-level cluster (mOTU) of mOTUs-db 4.1 found in a metagenome, placed by its marker genes or by which of 115k metagenomes it occurs in: switch under Model.',
+		source: 'mOTUs-db 4.1 species-level clusters (GTDB r226 taxonomy)',
+		preview: '/earthdna/previews/motus.webp',
+		method: 'marker-gene 5-mers or co-occurrence across metagenomes (pick one under Model)',
+		pointSize: 1.5
+	},
+	{
+		slug: 'motus-samples',
+		name: 'Metagenomes',
+		base: '/earthdna/motus41-samples',
+		version: 'motus41-samples-1',
+		release: null,
+		count: 114160,
+		unit: ['metagenome', 'metagenomes'],
+		blurb: 'The 114k public metagenomes profiled by mOTUs-db 4.1, placed by their mOTU composition and labelled by their most abundant taxon.',
+		source: 'metagenomes profiled by mOTUs-db 4.1, labelled by their most abundant taxon',
+		preview: '/earthdna/previews/motus-samples.webp',
+		method: 'mOTU composition (Hellinger distance)',
+		pointSize: 1.5
 	},
 	{
 		slug: 'models',
