@@ -187,7 +187,7 @@ export const DATASETS: Dataset[] = [
 		tsne: false,
 		pointSize: 2,
 		family: 'motus-samples',
-		variant: 'Map (83k with coordinates)'
+		variant: 'Geography (83k with coordinates)'
 	},
 	{
 		slug: 'models',
