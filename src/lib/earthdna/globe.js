@@ -1171,11 +1171,17 @@ void main() {
 	on($('lSim'), 'click', () => showLayout('similarity'));
 	on($('lSculpt'), 'click', () => showLayout('sculpt'));
 	on($('asvBtn'), 'click', () => toggleAsv());
-	// point size: Small (the globe's own starting size) or Medium, one button
-	const SIZE_STEPS = [['Small points', 1], ['Medium points', 2.2]];
+	// point size: small (the globe's own starting size) or medium; the Size button is pressed for medium
+	const SIZE_STEPS = [['small', 1], ['medium', 2.2]];
 	let sizeStep = 0;
 	const pointSize = () => (+$('sizeBtn').dataset.small || 0.5) * SIZE_STEPS[sizeStep][1];
-	on($('sizeBtn'), 'click', () => { sizeStep = (sizeStep + 1) % SIZE_STEPS.length; $('sizeBtn').textContent = SIZE_STEPS[sizeStep][0]; dirty = true; });
+	on($('sizeBtn'), 'click', () => {
+		sizeStep = (sizeStep + 1) % SIZE_STEPS.length;
+		const b = $('sizeBtn'), next = SIZE_STEPS[(sizeStep + 1) % SIZE_STEPS.length][0];
+		b.setAttribute('aria-pressed', sizeStep ? 'true' : 'false');
+		b.title = `Points: ${SIZE_STEPS[sizeStep][0]} (click for ${next})`;
+		dirty = true;
+	});
 	const ro = new ResizeObserver(() => resize()); ro.observe(canvas); cleanups.push(() => ro.disconnect());
 
 	// ---------- amplicon runs: each run's ASVs as placed by PLACE_GLOBE
