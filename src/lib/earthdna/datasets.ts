@@ -95,7 +95,7 @@ export const DATASETS: Dataset[] = [
 	},
 	{
 		slug: 'gtdb',
-		name: 'Genomes',
+		name: 'GTDB',
 		base: '/earthdna/gtdb226',
 		version: 'gtdb226-ref30-2k-p2c4-traits',
 		release: null,
@@ -110,7 +110,7 @@ export const DATASETS: Dataset[] = [
 	},
 	{
 		slug: 'gtdb-full',
-		name: 'Genomes',
+		name: 'GTDB',
 		base: '/earthdna/gtdb226full',
 		version: 'gtdb226-ref30-full-1',
 		release: null,
@@ -125,7 +125,7 @@ export const DATASETS: Dataset[] = [
 	},
 	{
 		slug: 'gtdb-all',
-		name: 'Genomes',
+		name: 'GTDB',
 		base: '/earthdna/gtdb226all',
 		version: 'gtdb226-all-2',
 		release: null,
@@ -154,7 +154,7 @@ export const DATASETS: Dataset[] = [
 	},
 	{
 		slug: 'motus-samples',
-		name: 'Metagenomes',
+		name: 'mOTU-Samples',
 		base: '/earthdna/motus41-samples',
 		version: 'motus41-samples-1',
 		release: null,
