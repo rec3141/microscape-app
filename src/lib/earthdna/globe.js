@@ -429,6 +429,7 @@ void main() {
 	async function buildLabels() {
 		const gen0 = ++labelGen, L0 = LL;
 		labelSets = []; dirty = true;
+		if (labelKey) return buildSetLabels(gen0, L0);
 		const domName = meta.groups.map((g) => g.split(' · ')[0]);
 		const doms = [...new Set(domName)], dIx = domName.map((d) => doms.indexOf(d));
 		const levels = [
@@ -482,6 +483,43 @@ void main() {
 				if (n[q] < L.min || at[q] < 0 || L.names[g] == null || SKIP.test(L.names[g])) continue;
 				const i = at[q];
 				out.push({ text: L.names[g], cls: L.cls, n: n[q], spread: dsum[q] / n[q], p: toXyz(L0[2 * i], L0[2 * i + 1]) });
+			}
+			out.sort((a, b) => b.n - a.n);
+			return out;
+		});
+		dirty = true;
+	}
+	// the globe's names for a label set (globe.json labelSets, e.g. environment): one level per name tier, the
+	// biggest categories first, anchored like the taxonomy's at the member nearest each category's centroid
+	const SET_MIN = [1000, 200, 60, 25, 10, 5];
+	async function buildSetLabels(gen0, L0) {
+		const K = curLevels.length, Gs = rankNames.map((n) => n.length), off = [0];
+		for (let k = 0; k < K; k++) off.push(off[k] + Gs[k]);
+		const S = off[K], sum = new Float64Array(3 * S), n = new Int32Array(S);
+		const slot = (k, i) => { const c = setArr[k][i]; return c < Gs[k] ? off[k] + c : -1; };
+		for (let i = 0; i < N; i++) {
+			const lo = L0[2 * i], la = L0[2 * i + 1], cb = COSLA[la], x = cb * COSLO[lo], y = cb * SINLO[lo], z = SINLA[la];
+			for (let k = 0; k < K; k++) { const q = slot(k, i); if (q < 0) continue; n[q]++; sum[3 * q] += x; sum[3 * q + 1] += y; sum[3 * q + 2] += z; }
+		}
+		for (let q = 0; q < S; q++) { const l = Math.hypot(sum[3 * q], sum[3 * q + 1], sum[3 * q + 2]) || 1; sum[3 * q] /= l; sum[3 * q + 1] /= l; sum[3 * q + 2] /= l; }
+		const best = new Float64Array(S).fill(-2), at = new Int32Array(S).fill(-1), dsum = new Float64Array(S);
+		for (let i = 0; i < N; i++) {
+			const lo = L0[2 * i], la = L0[2 * i + 1], cb = COSLA[la], x = cb * COSLO[lo], y = cb * SINLO[lo], z = SINLA[la];
+			for (let k = 0; k < K; k++) {
+				const q = slot(k, i); if (q < 0) continue;
+				const d = x * sum[3 * q] + y * sum[3 * q + 1] + z * sum[3 * q + 2];
+				dsum[q] += Math.sqrt(Math.max(0, 2 - 2 * d));
+				if (d > best[q]) { best[q] = d; at[q] = i; }
+			}
+		}
+		if (gen0 !== labelGen || !alive) return;
+		labelSets = curLevels.map((_, k) => {
+			const out = [], min = SET_MIN[Math.min(k, SET_MIN.length - 1)];
+			for (let g = 0; g < Gs[k]; g++) {
+				const q = off[k] + g;
+				if (n[q] < min || at[q] < 0 || rankNames[k][g] == null) continue;
+				const i = at[q];
+				out.push({ text: rankNames[k][g], cls: `L${Math.min(k, 4)}`, n: n[q], spread: dsum[q] / n[q], p: toXyz(L0[2 * i], L0[2 * i + 1]) });
 			}
 			out.sort((a, b) => b.n - a.n);
 			return out;
@@ -820,7 +858,7 @@ void main() {
 			tip.children[0].textContent = sp || (g ? g + ' sp.' : 'Unclassified');
 			let second = gr.replace(' · ', ' › ');
 			if (rankArr) {
-				const r = curLevel >= 5 ? 4 : curLevel, c = rankCode(r, i), lv = meta.ranks.levels[r];
+				const r = labelKey ? curLevel : curLevel >= 5 ? 4 : curLevel, c = rankCode(r, i), lv = curLevels[r];
 				second = `${lv.charAt(0).toUpperCase()}${lv.slice(1)} · ${c !== NONE && rankNames[r][c] != null ? rankNames[r][c] : 'unclassified'}`;
 			}
 			tip.children[1].textContent = second;
@@ -835,7 +873,10 @@ void main() {
 
 	// ---------- taxa: rank codes per reference, the picker's view
 	// rank 0 domain (from the group), 1-4 phylum..family (ranks.bin), 5 genus, 6 species (tax.bin); NONE = unranked
-	const rankCode = (r, i) => r === 0 ? domIx[grp[i]] : r <= 4 ? rankArr[r - 1][T(i)] : r === 5 ? gen[T(i)] : spc[T(i)];
+	const taxCode = (r, i) => r === 0 ? domIx[grp[i]] : r <= 4 ? rankArr[r - 1][T(i)] : r === 5 ? gen[T(i)] : spc[T(i)];
+	// a label set (globe.json labelSets) replaces the taxonomy everywhere the ranks are read: codes per point and level
+	let labelKey = '', setArr = null, taxNames = null, curLevels = null;
+	let rankCode = taxCode;
 	function lineageOf(i) {
 		const out = [];
 		for (let r = 0; r < rankNames.length; r++) { const c = rankCode(r, i); if (c !== NONE && rankNames[r][c] != null) out.push({ rank: r, code: c, name: rankNames[r][c] }); }
@@ -850,7 +891,7 @@ void main() {
 		if (rec) { per = new Int32Array(spc.length); for (let i = 0; i < N; i++) per[rec[i]]++; }
 		rankNames.forEach((names, r) => {
 			const n = new Int32Array(names.length);
-			if (per && r > 0) for (let j = 0; j < per.length; j++) { const c = r <= 4 ? rankArr[r - 1][j] : r === 5 ? gen[j] : spc[j]; if (c !== NONE) n[c] += per[j]; }
+			if (per && r > 0 && !labelKey) for (let j = 0; j < per.length; j++) { const c = r <= 4 ? rankArr[r - 1][j] : r === 5 ? gen[j] : spc[j]; if (c !== NONE) n[c] += per[j]; }
 			else for (let i = 0; i < N; i++) { const c = rankCode(r, i); if (c !== NONE) n[c]++; }
 			names.forEach((name, c) => {
 				if (name == null) return;
@@ -888,7 +929,7 @@ void main() {
 	function describe(name) {
 		const u = uses(name);
 		if (!u.length) return '';
-		return `${meta.ranks.levels[u[0].rank]} · ${u[0].count.toLocaleString()}` + (u.length > 1 ? ` (+${u.length - 1} more)` : '');
+		return `${curLevels[u[0].rank]} · ${u[0].count.toLocaleString()}` + (u.length > 1 ? ` (+${u.length - 1} more)` : '');
 	}
 	let curLevel = 2;  // the rank the globe is coloured by (view() sets it); the tooltip names the point's taxon there
 	let baseLevel = 2, pickedLevel = -1;  // the Colour by rank (the level shown with nothing picked); a click picks at it
@@ -946,6 +987,34 @@ void main() {
 		if (!rankArr) return;
 		const lineage = lineageOf(i).filter((x) => x.rank <= baseLevel);
 		if (lineage.length) { pickedLevel = baseLevel; onPick(lineage); }
+	}
+	// switch the labels (picker, colours, names on the globe, tooltip, search) to a label set, or back to the taxonomy
+	const setCache = {};
+	async function setLabels(key) {
+		if (key === labelKey) return true;
+		if (key) {
+			const def = meta.labelSets.find((x) => x.key === key);
+			if (!def) return false;
+			if (!setCache[key]) {
+				$('status').textContent = `Loading the ${def.name.toLowerCase()} labels…`;
+				let b; try { b = await fetchBin(`labels_${key}.bin`); } catch { b = null; }
+				if (!b || b.length !== 2 * def.levels.length * N) { $('status').textContent = `The ${def.name.toLowerCase()} labels did not load. Try again.`; return false; }
+				setCache[key] = def.levels.map((_, k) => new Uint16Array(b.buffer, 2 * k * N, N));
+			}
+			if (!alive) return false;
+			setArr = setCache[key]; labelKey = key; curLevels = def.levels;
+			rankNames = def.levels.map((l) => def.names[l]);
+			rankCode = (r, i) => setArr[r][i];
+		} else {
+			labelKey = ''; setArr = null; curLevels = meta.ranks.levels; rankNames = taxNames; rankCode = taxCode;
+		}
+		onClear();
+		namesIndex();
+		buildLabels();
+		const start = key ? Math.min(2, curLevels.length - 1) : Math.max(0, curLevels.indexOf('class'));
+		view(start, null);
+		onTaxa({ levels: curLevels, names: rankNames, find, count, describe, start, noun: key ? 'category' : 'taxon' });
+		return true;
 	}
 	on(window, 'keydown', (e) => { if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement)) onClear(); });
 	on($('vGlobe'), 'click', () => setView('globe'));
@@ -1353,7 +1422,8 @@ void main() {
 		if (rk.length !== 8 * M) throw new Error('rank file has the wrong size');
 		rankArr = [0, 1, 2, 3].map((k) => new Uint16Array(rk.buffer, 2 * k * M, M));
 		const R = meta.ranks;
-		rankNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
+		rankNames = taxNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
+		curLevels = R.levels;
 		// Highlight: genome traits (traits.bin, GTDB) and taxonomic disagreements (flags.bin, the label checks)
 		const selEl = $('trait');
 		selEl.options[0].textContent = `All ${unit}`;
@@ -1384,6 +1454,14 @@ void main() {
 		// amplicon runs load and show only when asked (Show amplicon runs)
 		namesIndex();
 		onTaxa({ levels: R.levels, names: rankNames, find, count, describe });
+		// Labels: the taxonomy, or a label set the globe carries (e.g. each point's environment)
+		if (meta.labelSets?.length) {
+			const lEl = $('labelSet');
+			lEl.add(new Option('Taxonomy', ''));
+			for (const x of meta.labelSets) lEl.add(new Option(x.name, x.key));
+			$('labelSetRow').hidden = false;
+			on(lEl, 'change', async () => { if (!(await setLabels(lEl.value))) lEl.value = labelKey; });
+		}
 		loadOverlays();
 		// a show that does not load leaves the globe as it is, with its panels back
 		if (show) initShow().catch((e) => { if (!alive) return; show = null; root.classList.remove('clean'); $('labels').style.opacity = ''; $('status').textContent = `The show did not load (${e.message}).`; });
