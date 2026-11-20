@@ -18,6 +18,8 @@
  * motus: in static/earthdna/motus41/, one point per mOTUs-db 4.1 mOTU detected in a metagenome (earthdna
  *        pipeline/build_motus.sh); models '' (marker-gene 5-mers) and abund (co-occurrence across metagenomes).
  * motus-samples: in static/earthdna/motus41-samples/, one point per metagenome, similarity layout only.
+ * motus-samples-map: in static/earthdna/motus41-samples-map/, the metagenomes with coordinates: a map layout
+ *        (globe.json geoLayouts, not turned) and their composition layout (model comp).
  * models: in static/earthdna/models-gtdb-genus/, one 4 kb window per GTDB genus (earthdna models_set.py) laid
  *        out by each model; globe.json `models` names them and the viewer's Model picker switches between their
  *        layouts (layout_<shape>-<key>.bin). /earthdna/evo2 redirects here.
@@ -142,7 +144,7 @@ export const DATASETS: Dataset[] = [
 		slug: 'motus',
 		name: 'mOTUs',
 		base: '/earthdna/motus41',
-		version: 'motus41-2-env',
+		version: 'motus41-3-info',
 		release: null,
 		count: 119562,
 		unit: ['mOTU', 'mOTUs'],
@@ -156,7 +158,7 @@ export const DATASETS: Dataset[] = [
 		slug: 'motus-samples',
 		name: 'mOTU-Samples',
 		base: '/earthdna/motus41-samples',
-		version: 'motus41-samples-2-env',
+		version: 'motus41-samples-3-info',
 		release: null,
 		count: 114160,
 		unit: ['metagenome', 'metagenomes'],
@@ -164,7 +166,25 @@ export const DATASETS: Dataset[] = [
 		source: 'metagenomes profiled by mOTUs-db 4.1, labelled by their most abundant taxon',
 		preview: '/earthdna/previews/motus-samples.webp',
 		method: 'mOTU composition (Hellinger distance)',
-		pointSize: 1.5
+		pointSize: 1.5,
+		family: 'motus-samples',
+		variant: 'by composition (114k)'
+	},
+	{
+		slug: 'motus-samples-map',
+		name: 'mOTU-Samples',
+		base: '/earthdna/motus41-samples-map',
+		version: 'motus41-samples-map-1',
+		release: null,
+		count: 83371,
+		unit: ['metagenome', 'metagenomes'],
+		blurb: 'The 83k mOTUs-db 4.1 metagenomes that have coordinates, on the Earth where they were sampled; switch Model to morph them into their mOTU-composition map.',
+		source: 'mOTUs-db 4.1 metagenomes with coordinates (motus-db.org)',
+		preview: '/earthdna/previews/motus-samples-map.webp',
+		method: 'where they were sampled (or mOTU composition, under Model)',
+		pointSize: 2,
+		family: 'motus-samples',
+		variant: 'on the map (83k with coordinates)'
 	},
 	{
 		slug: 'models',
