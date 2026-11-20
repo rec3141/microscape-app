@@ -331,8 +331,9 @@ void main() {
 		return [V[k], V[3 + k], V[6 + k]];
 	}
 	// a layout turned onto the equator: interleaved uint16 lon, lat, kept as is and as its GL buffer
-	function makeLayout(lon0, lat0) {
-		const W = equatorRotation(lon0, lat0), ll = new Uint16Array(2 * N), K1 = 65535 / (2 * Math.PI), K2 = 65535 / Math.PI;
+	// a layout of places on Earth (globe.json geoLayouts) keeps its own orientation
+	function makeLayout(lon0, lat0, name) {
+		const W = (meta.geoLayouts || []).includes(name) ? [1, 0, 0, 0, 1, 0, 0, 0, 1] : equatorRotation(lon0, lat0), ll = new Uint16Array(2 * N), K1 = 65535 / (2 * Math.PI), K2 = 65535 / Math.PI;
 		const [w0, w1, w2, w3, w4, w5, w6, w7, w8] = W;
 		for (let i = 0; i < N; i++) {
 			const cb = COSLA[lat0[i]], x = cb * COSLO[lon0[i]], y = cb * SINLO[lon0[i]], z = SINLA[lat0[i]];
@@ -354,7 +355,7 @@ void main() {
 	// the page opens on the sculpted layout, and each turn costs a pass over every point
 	let simSrc = null;
 	function similarity() {
-		if (!layouts.similarity) layouts.similarity = makeLayout(new Uint16Array(simSrc, 0, N), new Uint16Array(simSrc, 2 * N, N));
+		if (!layouts.similarity) layouts.similarity = makeLayout(new Uint16Array(simSrc, 0, N), new Uint16Array(simSrc, 2 * N, N), 'similarity');
 		return layouts.similarity;
 	}
 	function upload(buf) {
@@ -628,7 +629,7 @@ void main() {
 		let b;
 		try { b = await fetchBin(`layout_${name}.bin`); } catch { return false; }
 		if (!alive) return false;
-		layouts[name] = makeLayout(new Uint16Array(b.buffer, 0, N), new Uint16Array(b.buffer, 2 * N, N));
+		layouts[name] = makeLayout(new Uint16Array(b.buffer, 0, N), new Uint16Array(b.buffer, 2 * N, N), name);
 		if (asv) asvLayout(name);
 		return true;
 	}
@@ -851,6 +852,7 @@ void main() {
 			}
 			const i = nearest(cx, cy);
 			if (i < 0) { tip.hidden = true; return; }
+			if (labelKey && setInfo[labelKey]) { setTip(tip, i); placeTip(tip, cx, cy); return; }
 			// two lines: genus + species, then the taxon at the rank the globe is coloured by (family when that rank is
 			// genus or species, which the first line already names)
 			const g = meta.genera[gen[T(i)]], sp = meta.species[spc[T(i)]], gr = meta.groups[grp[i]] || 'other';
@@ -989,7 +991,31 @@ void main() {
 		if (lineage.length) { pickedLevel = baseLevel; onPick(lineage); }
 	}
 	// switch the labels (picker, colours, names on the globe, tooltip, search) to a label set, or back to the taxonomy
-	const setCache = {};
+	const setCache = {}, setInfo = {};
+	// a label set's tooltip: the point's own record (globe.json labelSets info: the first column is the title, lat and lon
+	// are shown as one place), then its label path, top level down, with repeats dropped
+	function setTip(tip, i) {
+		const S = setInfo[labelKey], v = S.rows[i].split('\t'), cols = S.cols;
+		tip.innerHTML = '';
+		const line = (cls, text) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = text; tip.appendChild(d); };
+		line('g', v[0] || 'unknown');
+		const parts = [];
+		let la = '', lo = '';
+		cols.forEach((c, k) => {
+			if (k === 0 || !v[k]) return;
+			if (c === 'lat') la = v[k]; else if (c === 'lon') lo = v[k];
+			else if (/^\d+$/.test(v[k])) parts.push(`${c} ${(+v[k]).toLocaleString()}`);
+			else parts.push(c === 'taxon' ? v[k] : `${c} ${v[k]}`);
+		});
+		if (parts.length) line('', parts.join(' · '));
+		const path = [];
+		for (let r = 1; r < curLevels.length; r++) { const c = setArr[r][i]; const nm = c !== NONE ? rankNames[r][c] : null; if (nm && nm !== path[path.length - 1]) path.push(nm); }
+		if (path.length) line('m', (S.tip ? S.tip + ' ' : '') + path.join(' › '));
+		if (cols.includes('lat')) {
+			const f = (x, p, n) => `${Math.abs(+x).toFixed(2)}°${+x >= 0 ? p : n}`;
+			line('m', la && lo ? `${f(la, 'N', 'S')}, ${f(lo, 'E', 'W')}` : 'No coordinates');
+		}
+	}
 	async function setLabels(key) {
 		if (key === labelKey) return true;
 		if (key) {
@@ -1000,6 +1026,13 @@ void main() {
 				let b; try { b = await fetchBin(`labels_${key}.bin`); } catch { b = null; }
 				if (!b || b.length !== 2 * def.levels.length * N) { $('status').textContent = `The ${def.name.toLowerCase()} labels did not load. Try again.`; return false; }
 				setCache[key] = def.levels.map((_, k) => new Uint16Array(b.buffer, 2 * k * N, N));
+				if (def.info) {
+					try {
+						const r = await fetch(url(`info_${key}.txt`));
+						const lines = r.ok ? (await r.text()).split('\n') : [];
+						if (lines.length >= N) setInfo[key] = { cols: def.info, rows: lines, tip: def.tip || '' };
+					} catch { /* the tooltip falls back to the label path */ }
+				}
 			}
 			if (!alive) return false;
 			setArr = setCache[key]; labelKey = key; curLevels = def.levels;
@@ -1401,7 +1434,7 @@ void main() {
 		const sb = await sculptReq;
 		if (!alive) return;
 		if (sb && sb.length === 4 * N) {
-			layouts.sculpt = makeLayout(new Uint16Array(sb.buffer, 0, N), new Uint16Array(sb.buffer, 2 * N, N));
+			layouts.sculpt = makeLayout(new Uint16Array(sb.buffer, 0, N), new Uint16Array(sb.buffer, 2 * N, N), 'sculpt');
 			bindLayouts(layouts.sculpt, layouts.sculpt);
 		} else { current = shape = 'similarity'; similarity(); bindLayouts(layouts.similarity, layouts.similarity); }
 		// a globe built without a sculpted layout (globe.json layouts) has nothing for Shaped by to switch to
@@ -1461,6 +1494,7 @@ void main() {
 			for (const x of meta.labelSets) lEl.add(new Option(x.name, x.key));
 			$('labelSetRow').hidden = false;
 			on(lEl, 'change', async () => { if (!(await setLabels(lEl.value))) lEl.value = labelKey; });
+			if (meta.defaultLabels && (await setLabels(meta.defaultLabels))) lEl.value = labelKey;
 		}
 		loadOverlays();
 		// a show that does not load leaves the globe as it is, with its panels back
