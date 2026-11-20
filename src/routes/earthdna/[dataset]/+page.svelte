@@ -55,6 +55,10 @@
 		<canvas id="gl" aria-label="Globe of {ds.source}"></canvas>
 		<div id="loading">Loading {ds.count.toLocaleString('en-US')} {ds.unit[1]}…</div>
 		<div id="labels" aria-hidden="true"></div>
+		<div id="canvasBtns">
+			<button class="btn toggle" id="spin" aria-pressed="false">Spin</button>
+			<button class="btn toggle" id="labelsBtn" aria-pressed="true">Labels</button>
+		</div>
 		<div id="hint">Drag: rotate · Scroll or pinch: zoom<br />Double-click: centre · Esc: clear</div>
 	</div>
 
@@ -71,7 +75,7 @@
 				<!-- the family's globes; each is its own page, so picking one loads it -->
 				<div class="row">
 					<label class="rankpick highlight" for="variant">{ds.unit[1][0].toUpperCase() + ds.unit[1].slice(1)}
-						<select id="variant" value={ds.slug} onchange={(e) => location.assign(`/earthdna/${e.currentTarget.value}`)}>
+						<select id="variant" value={ds.slug} onchange={(e) => { const v = e.currentTarget.value; if (v !== ds.slug && !v.startsWith('model:')) location.assign(`/earthdna/${v}`); }}>
 							{#each familyOf(ds) as v (v.slug)}<option value={v.slug}>{v.variant ?? v.name}</option>{/each}
 						</select>
 					</label>
@@ -103,8 +107,7 @@
 				<button id="vFlat" aria-pressed="false">Equal-area</button>
 				<button id="vDome" aria-pressed="false" title="Fisheye from inside the sphere (a dome master: the front of the dome at the bottom)">Dome</button>
 			</div>
-			<button class="btn toggle" id="spin" aria-pressed="false">Spin</button>
-			<button class="btn toggle" id="labelsBtn" aria-pressed="true">Labels</button>
+			<button class="btn" id="sizeBtn" data-small={ds.pointSize ?? 0.5} title="Point size: click to switch">Small points</button>
 		</div>
 		<div class="row" hidden={!data.runs.length}>
 			<button class="btn" id="asvBtn" aria-pressed="false">Show amplicon runs</button>
@@ -128,14 +131,10 @@
 			</label>
 		</div>
 		<div id="status">Drag to turn the globe.</div>
-		<div class="sliders">
-			<label class="slider" for="size">Point size <input id="size" type="range" min="0.5" max="6" step="0.1" value={ds.pointSize ?? 0.5} /></label>
-			<label class="slider" for="alpha">Opacity <input id="alpha" type="range" min="0.05" max="1" step="0.01" value="1" /></label>
-		</div>
 	</section>
 
 	<section id="key" class="card" aria-label="Taxa">
-		<h2>Taxa</h2>
+		<h2>{taxa?.title ?? 'Taxa'}</h2>
 		{#if taxa}
 			{#key taxa}
 				<TaxonPicker bind:this={picker} {taxa} {view} asvsShown={asvVersion > 0} version={asvVersion + refreshVersion} />

@@ -113,7 +113,7 @@
 .earthdna #hint { position: absolute; z-index: 1; right: 12px; bottom: 12px; font-size: 0.72rem; color: var(--muted); text-align: right; line-height: 1.5; }
 /* &ui=0 (and shows): the globe alone, for a projector or a dome */
 .earthdna.clean { background: #000; }
-.earthdna.clean .leftcol, .earthdna.clean #runcard, .earthdna.clean #hint, .earthdna.clean #tip { display: none; }
+.earthdna.clean .leftcol, .earthdna.clean #runcard, .earthdna.clean #hint, .earthdna.clean #tip, .earthdna.clean #canvasBtns { display: none; }
 .earthdna.clean .stage { left: 0; }
 .earthdna.clean canvas#gl { cursor: none; }
 /* Phones: the globe takes the top of the panel and the cards stack below it instead of floating over it. */
@@ -141,3 +141,8 @@
 /* native dropdown lists ignore the page's dark theme unless told: dark lists with readable text */
 .earthdna select { color-scheme: dark; }
 .earthdna select option, .earthdna select optgroup { background-color: #0f172a; color: #e2e8f0; }
+
+/* Spin and Labels sit on the globe, top right */
+.earthdna #canvasBtns { position: absolute; z-index: 2; top: 12px; right: 12px; display: flex; gap: 6px; }
+.earthdna #canvasBtns .btn { backdrop-filter: blur(4px); }
+.earthdna #canvasBtns .btn[aria-pressed='false'] { background: rgba(15, 23, 42, 0.7); }

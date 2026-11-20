@@ -202,19 +202,37 @@ in vec2 aP; out vec2 vP;
 void main() { vP = aP; gl_Position = vec4(aP, 0.99, 1.0); }`, `#version 300 es
 precision highp float;
 in vec2 vP; out vec4 o;
-uniform mat3 uRot; uniform float uFlat; uniform vec2 uScale;
-const float PI = 3.14159265;
+uniform mat3 uRot; uniform float uFlat; uniform vec2 uScale; uniform vec3 uCam;
+uniform sampler2D uLandTex; uniform float uLand;
+const float PI = 3.14159265, CAM = 4.5, FOC = 4.3874822;
+// land under a map layout: the view-space point q back to the world, then the land mask (equirectangular, north up),
+// filled in the coastlines' colour
+vec3 land(vec3 c, vec3 q) {
+  if (uLand <= 0.0) return c;
+  vec3 p = transpose(uRot) * q;
+  vec2 uv = vec2(atan(p.y, p.x) / (2.0 * PI) + 0.5, 0.5 - asin(clamp(p.z, -1.0, 1.0)) / PI);
+  return mix(c, vec3(0.62, 0.70, 0.80) * (0.6 + 0.4 * c.b / 0.157), 0.16 * uLand * texture(uLandTex, uv).r);
+}
 void main() {
   vec2 s = vP / uScale;
   vec3 ocean = vec3(0.047, 0.094, 0.157), space = vec3(0.008, 0.024, 0.090);
   if (uFlat > 1.5) {
     // dome master: the sphere's inside fills the disc, kept dark (a dome lights itself); black outside it
-    o = vec4(dot(s, s) > 1.0 ? vec3(0.0) : ocean * 0.55, 1.0);
+    float r = length(s);
+    if (r > 1.0) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    // the fisheye backwards: the viewing direction for this pixel, then where its ray from the camera meets the sphere
+    float th = r * 0.5 * PI; vec2 d = r > 1e-6 ? s / r : vec2(0.0);
+    vec3 v = vec3(-d.x * sin(th), d.y * sin(th), cos(th));
+    float b = dot(uCam, v), t = -b + sqrt(max(0.0, b * b - dot(uCam, uCam) + 1.0));
+    o = vec4(land(ocean * 0.55, uCam + t * v), 1.0);
   } else if (uFlat < 0.5) {
     float r2 = dot(s, s);
     if (r2 > 1.0) { float h = exp(-(sqrt(r2) - 1.0) * 28.0); o = vec4(mix(space, vec3(0.16, 0.30, 0.48), h * 0.55), 1.0); return; }
     float shade = 0.55 + 0.45 * sqrt(1.0 - r2);
-    o = vec4(ocean * shade, 1.0);
+    // the perspective backwards: the ray from the camera through this pixel, to its nearer meeting with the sphere
+    vec3 c = vec3(0.0, 0.0, CAM), v = normalize(vec3(s, -FOC));
+    float b = dot(c, v), t = -b - sqrt(max(0.0, b * b - CAM * CAM + 1.0));
+    o = vec4(land(ocean * shade, c + t * v), 1.0);
   } else {
     vec2 m = s * 2.0;
     float st = m.y / 1.4142136;
@@ -222,7 +240,8 @@ void main() {
     float t = asin(st);
     float lam = m.x / (0.9003163 * cos(t));
     if (abs(lam) > PI) { o = vec4(space, 1.0); return; }
-    o = vec4(ocean, 1.0);
+    float phi = asin(clamp((2.0 * t + sin(2.0 * t)) / PI, -1.0, 1.0));
+    o = vec4(land(ocean, vec3(cos(phi) * sin(lam), sin(phi), cos(phi) * cos(lam))), 1.0);
   }
 }`);
 
@@ -673,7 +692,8 @@ void main() {
 		if (!layouts[name]) $('status').textContent = 'Loading the layout…';
 		if (!(await ensureLayout(name))) { if (alive) $('status').textContent = 'That layout did not load. Try again.'; return false; }
 		const by = meta.models ? modelLabel(m) : 'sequence';
-		$('status').textContent = s === 'sculpt' ? (meta.models ? `${by} map, ` + SCULPT.charAt(0).toLowerCase() + SCULPT.slice(1) : SCULPT)
+		const about = meta.layoutInfo?.[name]?.about;
+		$('status').textContent = about ? about : s === 'sculpt' ? (meta.models ? `${by} map, ` + SCULPT.charAt(0).toLowerCase() + SCULPT.slice(1) : SCULPT)
 			: `Placed by ${by} similarity alone.`;
 		bindLayouts(layouts[current], layouts[name]);
 		const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -699,7 +719,19 @@ void main() {
 		const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Int16Array(b), gl.STATIC_DRAW);
 		const loc = gl.getAttribLocation(coastProg, 'aSeg');
 		gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 4, gl.SHORT, false, 0, 0); gl.vertexAttribDivisor(loc, 1);
-		coast = { vao, n: b.byteLength / 8 }; dirty = true;
+		coast = { vao, n: b.byteLength / 8, land: null }; dirty = true;
+		// land mask (static/earthdna/land-50m.png: Natural Earth 50 m land, 2048 x 1024 equirectangular, north up)
+		try {
+			const r = await fetch('/earthdna/land-50m.png');
+			if (!r.ok) return;
+			const img = await createImageBitmap(await r.blob());
+			if (!alive) return;
+			const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			coast.land = tex; dirty = true;
+		} catch { /* coastlines only */ }
 	}
 	function draw() {
 		const sc = scale();
@@ -713,13 +745,15 @@ void main() {
 			gl.uniform3f(gl.getUniformLocation(p, 'uCam'), cm[0], cm[1], cm[2]);
 			gl.uniform2f(gl.getUniformLocation(p, 'uScale'), sc[0], sc[1]);
 		};
+		const ca = coast ? coastAlpha() : 0;
 		gl.useProgram(bgProg); gl.bindVertexArray(bgVao);
 		proj(bgProg);
+		gl.uniform1f(gl.getUniformLocation(bgProg, 'uLand'), coast?.land ? ca : 0);
+		if (coast?.land) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, coast.land); gl.uniform1i(gl.getUniformLocation(bgProg, 'uLandTex'), 1); gl.activeTexture(gl.TEXTURE0); }
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		if (!layouts[current]) return;  // N is known before the buffers are
 		gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
-		const ca = coast ? coastAlpha() : 0;
 		if (ca > 0.01) {
 			gl.useProgram(coastProg); gl.bindVertexArray(coast.vao);
 			proj(coastProg);
@@ -728,9 +762,9 @@ void main() {
 		}
 		gl.useProgram(ptProg); gl.bindVertexArray(ptVao);
 		proj(ptProg);
-		const dpr = canvas.width / Math.max(1, canvas.clientWidth), alpha = show?.ov ? show.ov.alpha : +$('alpha').value;
+		const dpr = canvas.width / Math.max(1, canvas.clientWidth), alpha = show?.ov ? show.ov.alpha : 1;
 		// dome: sized as a fraction of the disc (so any frame resolution looks the same); nearness enlarges points in the shader
-		const size = (show?.ov ? show.ov.size : +$('size').value) * (dome ? Math.min(canvas.width, canvas.height) / 900 : dpr * Math.pow(zoom, 0.45));
+		const size = (show?.ov ? show.ov.size : pointSize()) * (dome ? Math.min(canvas.width, canvas.height) / 900 : dpr * Math.pow(zoom, 0.45));
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uSize'), size);
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uAlpha'), alpha * (asvShown() ? 0.28 : ovShown() ? 0.35 : 1));
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uHasSel'), hasSel ? 1 : 0);
@@ -768,7 +802,7 @@ void main() {
 		const dt = Math.min(0.1, (t - last) / 1000); last = t;
 		if (show?.ready) { if (!show.paused) show.t = (show.t + dt) % show.duration; applyShow(show.t); raf = requestAnimationFrame(frame); return; }
 		// dome: the sky turns about the zenith, slowly (fast motion overhead is uncomfortable)
-		if (spin && !dragging) { rot = mul(dome ? rotZ(0.02 * dt / Math.sqrt(zoom)) : rotY(0.06 * dt / Math.sqrt(zoom)), rot); dirty = true; }
+		if (spin && !dragging) { rot = dome ? mul(rotZ(0.02 * dt / Math.sqrt(zoom)), rot) : mul(rot, rotZ(0.06 * dt / Math.sqrt(zoom))); dirty = true; }
 		if (morph) {
 			const u = Math.min(1, (t - morph.t0) / morph.dur);
 			morph.t = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
@@ -782,6 +816,17 @@ void main() {
 	// ---------- interaction
 	let dragging = false, moved = 0, lastP = null;
 	const pointers = new Map();
+	// Google Earth-style turning: across = about the Earth's polar axis; up and down = tilt toward a pole, stopping short
+	// of it so the globe never turns over the top; and while dragging, any roll eases back so north stays up (except near a
+	// pole, where up has no meaning). rot maps world to view: its third column is north in view, its third row the
+	// world direction at the centre of the view.
+	const MAX_LAT = Math.sin(89 * Math.PI / 180);
+	function earthDrag(ax, ay) {
+		rot = mul(rot, rotZ(ax));
+		const tilted = mul(rotX(ay), rot);
+		if (Math.abs(tilted[8]) < MAX_LAT || Math.abs(tilted[8]) < Math.abs(rot[8])) rot = tilted;
+		if (Math.abs(rot[8]) < 0.97) rot = mul(rotZ(0.15 * Math.atan2(rot[2], rot[5])), rot);
+	}
 	function stopSpin() { if (spin) { spin = false; $('spin').setAttribute('aria-pressed', 'false'); } }
 	on(canvas, 'pointerdown', (e) => {
 		canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]);
@@ -805,7 +850,7 @@ void main() {
 			return;
 		}
 		const px = (scale()[0] * canvas.clientWidth) / 2;  // pixels per unit radius
-		rot = mul(rotY(dx / px), mul(rotX(dy / px), rot)); dirty = true;
+		earthDrag(dx / px, dy / px); dirty = true;
 	});
 	function endPointer(e) {
 		pointers.delete(e.pointerId);
@@ -1033,8 +1078,29 @@ void main() {
 		const i = nearest(cx, cy);
 		if (i < 0) { if (hasSel || pickedLevel >= 0) onClear(); return; }
 		if (!rankArr) return;
+		copyRecord(i);
 		const lineage = lineageOf(i).filter((x) => x.rank <= baseLevel);
 		if (lineage.length) { pickedLevel = baseLevel; onPick(lineage); }
+	}
+	// a clicked point's record to the clipboard, as "field<TAB>value" lines (pastes as two spreadsheet columns): its
+	// label set record and full label path when a set with one is on, else its taxonomy
+	function copyRecord(i) {
+		const out = [];
+		const S = labelKey && setInfo[labelKey];
+		if (S) {
+			const v = S.rows[i].split('\t');
+			S.cols.forEach((c, k) => { if (v[k]) out.push([c === 'lat' ? 'Latitude' : c === 'lon' ? 'Longitude' : c, v[k]]); });
+		}
+		for (let r = 0; r < curLevels.length; r++) {
+			const c = rankCode(r, i), nm = c !== NONE ? rankNames[r][c] : null;
+			if (nm != null) out.push([curLevels[r].charAt(0).toUpperCase() + curLevels[r].slice(1), nm]);
+		}
+		if (!out.length || !navigator.clipboard) return;
+		const text = out.map((x) => x.join('\t')).join('\n');
+		navigator.clipboard.writeText(text).then(
+			() => { if (alive) $('status').textContent = `Copied ${out[0][1]} to the clipboard.`; },
+			() => {}
+		);
 	}
 	// switch the labels (picker, colours, names on the globe, tooltip, search) to a label set, or back to the taxonomy
 	const setCache = {}, setInfo = {};
@@ -1058,7 +1124,8 @@ void main() {
 		for (let r = 1; r < curLevels.length; r++) { const c = setArr[r][i]; const nm = c !== NONE ? rankNames[r][c] : null; if (nm && nm !== path[path.length - 1]) path.push(nm); }
 		if (path.length) line('m', (S.tip ? S.tip + ' ' : '') + path.join(' › '));
 		if (cols.includes('lat')) {
-			const f = (x, p, n) => `${Math.abs(+x).toFixed(2)}°${+x >= 0 ? p : n}`;
+			// as given in the source, not rounded
+			const f = (x, p, n) => `${x.trim().replace(/^[-+]/, '')}°${x.trim().startsWith('-') ? n : p}`;
 			line('m', la && lo ? `${f(la, 'N', 'S')}, ${f(lo, 'E', 'W')}` : 'No coordinates');
 		}
 	}
@@ -1092,7 +1159,7 @@ void main() {
 		buildLabels();
 		const start = key ? Math.min(2, curLevels.length - 1) : Math.max(0, curLevels.indexOf('class'));
 		view(start, null);
-		onTaxa({ levels: curLevels, names: rankNames, find, count, describe, start, noun: key ? 'category' : 'taxon' });
+		onTaxa({ levels: curLevels, names: rankNames, find, count, describe, start, noun: key ? 'category' : 'taxon', title: key ? meta.labelSets.find((x) => x.key === key).name : 'Taxa' });
 		return true;
 	}
 	on(window, 'keydown', (e) => { if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement)) onClear(); });
@@ -1104,7 +1171,11 @@ void main() {
 	on($('lSim'), 'click', () => showLayout('similarity'));
 	on($('lSculpt'), 'click', () => showLayout('sculpt'));
 	on($('asvBtn'), 'click', () => toggleAsv());
-	on($('size'), 'input', () => (dirty = true)); on($('alpha'), 'input', () => (dirty = true));
+	// point size: Small (the globe's own starting size) or Medium, one button
+	const SIZE_STEPS = [['Small points', 1], ['Medium points', 2.2]];
+	let sizeStep = 0;
+	const pointSize = () => (+$('sizeBtn').dataset.small || 0.5) * SIZE_STEPS[sizeStep][1];
+	on($('sizeBtn'), 'click', () => { sizeStep = (sizeStep + 1) % SIZE_STEPS.length; $('sizeBtn').textContent = SIZE_STEPS[sizeStep][0]; dirty = true; });
 	const ro = new ResizeObserver(() => resize()); ro.observe(canvas); cleanups.push(() => ro.disconnect());
 
 	// ---------- amplicon runs: each run's ASVs as placed by PLACE_GLOBE
@@ -1384,7 +1455,7 @@ void main() {
 		const S = await r.json();
 		if (!alive) return;
 		if (S.mode === 'dome') setView('dome');
-		let st = { lon: 0, lat: 7, zoom: 1, alt: domeAlt, roll: 0, layout: current, select: '', flags: false, labels: 1, size: +$('size').value, alpha: +$('alpha').value };
+		let st = { lon: 0, lat: 7, zoom: 1, alt: domeAlt, roll: 0, layout: current, select: '', flags: false, labels: 1, size: pointSize(), alpha: 1 };
 		const keys = [];
 		for (const k of S.keys) {
 			const prev = st; st = { ...st, ...k, ease: k.ease || 'smooth' };
@@ -1487,7 +1558,23 @@ void main() {
 		if (meta.layouts && !meta.layouts.includes('sculpt')) $('lSculpt').closest('.row').hidden = true;
 		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === current ? 'true' : 'false');
 		// Model: which embedding placed the points (the DNA-model globe); the first entry's layouts carry no suffix
-		if (meta.models?.length > 1) {
+		// a globe in a family (the Metagenomes menu) lists its models there, in place of its own entry, so one menu
+		// picks both the globe and how it is laid out
+		const vEl = $('variant');
+		if (meta.models?.length > 1 && vEl) {
+			// the globe's own entry keeps its value (the page keeps the menu on it) and stands for the first model
+			const own = [...vEl.options].find((o) => o.selected) || vEl.options[0], slug = own.value, text = own.textContent;
+			const val = (key) => (key ? `model:${key}` : slug);
+			own.textContent = `${text} · ${meta.models[0].label}`;
+			let after = own;
+			for (const x of meta.models.slice(1)) { const o = new Option(`${text} · ${x.label}`, val(x.key)); after.after(o); after = o; }
+			on(vEl, 'change', async () => {
+				const v = vEl.value;
+				if (v !== slug && !v.startsWith('model:')) return;  // another globe: the page loads it
+				const key = v === slug ? '' : v.slice(6);
+				if (!(await showLayout(shape, key))) vEl.value = val(model);
+			});
+		} else if (meta.models?.length > 1) {
 			const mEl = $('model');
 			for (const x of meta.models) mEl.add(new Option(x.label, x.key));
 			$('modelRow').hidden = false;
