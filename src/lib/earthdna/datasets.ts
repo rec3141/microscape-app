@@ -18,8 +18,8 @@
  * motus: in static/earthdna/motus41/, one point per mOTUs-db 4.1 mOTU detected in a metagenome (earthdna
  *        pipeline/build_motus.sh); models '' (marker-gene 5-mers) and abund (co-occurrence across metagenomes).
  * motus-samples: in static/earthdna/motus41-samples/, one point per metagenome, similarity layout only.
- * motus-samples-map: in static/earthdna/motus41-samples-map/, the metagenomes with coordinates: a map layout
- *        (globe.json geoLayouts, not turned) and their composition layout (model comp).
+ * motus-samples-map: in static/earthdna/motus41-samples-map/, the metagenomes with coordinates on a map layout
+ *        (globe.json geoLayouts, not turned).
  * models: in static/earthdna/models-gtdb-genus/, one 4 kb window per GTDB genus (earthdna models_set.py) laid
  *        out by each model; globe.json `models` names them and the viewer's Model picker switches between their
  *        layouts (layout_<shape>-<key>.bin). /earthdna/evo2 redirects here.
@@ -41,6 +41,8 @@ export interface Dataset {
 	preview: string;
 	/** how points were placed, for the page text */
 	method: string;
+	/** false for a globe laid out by something other than fastsne (a map), so the page does not say t-SNE placed it */
+	tsne?: boolean;
 	/** starting point size (the slider runs 0.5 to 6); sparse globes start bigger */
 	pointSize?: number;
 	/** globes of one kind share a pill (the first one's name) and a Sequences menu that picks between them */
@@ -168,23 +170,24 @@ export const DATASETS: Dataset[] = [
 		method: 'mOTU composition (Hellinger distance)',
 		pointSize: 1.5,
 		family: 'motus-samples',
-		variant: 'All 114k · mOTU composition'
+		variant: 'mOTU composition (all 114k)'
 	},
 	{
 		slug: 'motus-samples-map',
 		name: 'mOTU-Samples',
 		base: '/earthdna/motus41-samples-map',
-		version: 'motus41-samples-map-2-scatter',
+		version: 'motus41-samples-map-3-maponly',
 		release: null,
 		count: 83343,
 		unit: ['metagenome', 'metagenomes'],
-		blurb: 'The 83k mOTUs-db 4.1 metagenomes that have coordinates, on the Earth where they were sampled, or morphed into their mOTU-composition map.',
+		blurb: 'The 83k mOTUs-db 4.1 metagenomes that have coordinates, on the Earth where they were sampled.',
 		source: 'mOTUs-db 4.1 metagenomes with coordinates (motus-db.org)',
 		preview: '/earthdna/previews/motus-samples-map.webp',
-		method: 'where they were sampled (or mOTU composition)',
+		method: 'where they were sampled',
+		tsne: false,
 		pointSize: 2,
 		family: 'motus-samples',
-		variant: '83k with coordinates'
+		variant: 'Map (83k with coordinates)'
 	},
 	{
 		slug: 'models',

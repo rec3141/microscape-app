@@ -88,9 +88,13 @@
 				</label>
 			</div>
 			<p class="sub">
-				<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}, placed by {ds.method} with
-				spherical t-SNE (<a href="https://github.com/rec3141/fastsne" target="_blank" rel="noopener noreferrer">fastsne</a>).
-				Nearby {ds.unit[1]} are similar.
+				{#if ds.tsne === false}
+					<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}, placed {ds.method}.
+				{:else}
+					<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}, placed by {ds.method} with
+					spherical t-SNE (<a href="https://github.com/rec3141/fastsne" target="_blank" rel="noopener noreferrer">fastsne</a>).
+					Nearby {ds.unit[1]} are similar.
+				{/if}
 				{#if !ds.release}
 					<!-- no amplicon runs on this globe -->
 				{:else if data.runs.length}
