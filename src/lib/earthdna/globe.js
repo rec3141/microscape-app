@@ -177,6 +177,26 @@ void main() {
 precision mediump float;
 in vec4 vCol; out vec4 o;
 void main() { vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; o = vCol; }`);
+	// coastlines under a map layout (globe.json geoLayouts): one instance per segment, both ends projected together so a
+	// segment that crosses the equal-area map's seam, or runs over the globe's horizon, is dropped whole
+	const coastProg = prog(`#version 300 es
+in vec4 aSeg;
+uniform float uAlpha;
+out float vA;
+${PROJ}
+vec3 unit(vec2 d) { float lon = radians(d.x * 0.01), lat = radians(d.y * 0.01); return vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat)); }
+void main() {
+  vec3 a = unit(aSeg.xy), b = unit(aSeg.zw);
+  vec3 sa = project(a), sb = project(b);
+  bool vis = sa.z > 0.5 && sb.z > 0.5;
+  if (uFlat > 0.5 && uFlat < 1.5) { vec3 qa = uRot * a, qb = uRot * b; vis = vis && abs(atan(qa.x, qa.z) - atan(qb.x, qb.z)) < 1.5; }
+  vec3 s = gl_VertexID == 0 ? sa : sb, p = gl_VertexID == 0 ? a : b;
+  gl_Position = vis ? vec4(s.xy, 0.9, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
+  vA = uAlpha * shade(p);
+}`, `#version 300 es
+precision mediump float;
+in float vA; out vec4 o;
+void main() { o = vec4(0.62, 0.70, 0.80, vA); }`);
 	const bgProg = prog(`#version 300 es
 in vec2 aP; out vec2 vP;
 void main() { vP = aP; gl_Position = vec4(aP, 0.99, 1.0); }`, `#version 300 es
@@ -658,9 +678,28 @@ void main() {
 		bindLayouts(layouts[current], layouts[name]);
 		const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 		morph = { to: layouts[name], t0: performance.now(), dur: reduce ? 1 : 2200, t: 0 };
-		current = name; shape = s; model = m;
+		prevLayout = current; current = name; shape = s; model = m;
 		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === s ? 'true' : 'false');
 		return true;
+	}
+	// coastlines (static/earthdna/coast-50m.bin: Natural Earth 50 m coastline, int16 lon/lat pairs in 1/100 degree, one
+	// segment per 8 bytes), loaded only for a globe with a map layout and drawn while one is shown
+	let coast = null, prevLayout = null;
+	const isGeo = (name) => (meta?.geoLayouts || []).includes(name);
+	function coastAlpha() {
+		if (!morph) return isGeo(current) ? 1 : 0;
+		const a = isGeo(prevLayout) ? 1 : 0, b = isGeo(current) ? 1 : 0;
+		return a + (b - a) * morph.t;
+	}
+	async function loadCoast() {
+		if (!meta.geoLayouts?.length) return;
+		let b; try { const r = await fetch('/earthdna/coast-50m.bin'); if (!r.ok) return; b = await r.arrayBuffer(); } catch { return; }
+		if (!alive) return;
+		const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+		const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Int16Array(b), gl.STATIC_DRAW);
+		const loc = gl.getAttribLocation(coastProg, 'aSeg');
+		gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 4, gl.SHORT, false, 0, 0); gl.vertexAttribDivisor(loc, 1);
+		coast = { vao, n: b.byteLength / 8 }; dirty = true;
 	}
 	function draw() {
 		const sc = scale();
@@ -680,6 +719,13 @@ void main() {
 		if (!layouts[current]) return;  // N is known before the buffers are
 		gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+		const ca = coast ? coastAlpha() : 0;
+		if (ca > 0.01) {
+			gl.useProgram(coastProg); gl.bindVertexArray(coast.vao);
+			proj(coastProg);
+			gl.uniform1f(gl.getUniformLocation(coastProg, 'uAlpha'), 0.28 * ca);
+			gl.drawArraysInstanced(gl.LINES, 0, 2, coast.n);
+		}
 		gl.useProgram(ptProg); gl.bindVertexArray(ptVao);
 		proj(ptProg);
 		const dpr = canvas.width / Math.max(1, canvas.clientWidth), alpha = show?.ov ? show.ov.alpha : +$('alpha').value;
@@ -1482,6 +1528,7 @@ void main() {
 			});
 		}
 		view(Math.max(0, R.levels.indexOf('class')), null);
+		loadCoast();
 		$('nseq').textContent = N.toLocaleString();
 		$('loading').hidden = true; dirty = true;
 		// amplicon runs load and show only when asked (Show amplicon runs)
