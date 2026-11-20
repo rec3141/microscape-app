@@ -69,7 +69,7 @@
 			<h1><a href="/earthdna" class="home">EarthDNA</a></h1>
 			<nav class="globes" aria-label="Globes">
 				{#each PILLS as d (d.slug)}
-					<a href="/earthdna/{d.slug}" data-sveltekit-reload aria-current={familyOf(ds).includes(d) ? 'page' : undefined}>{d.name}</a>
+					<a href="/earthdna/{d.slug}" data-sveltekit-reload aria-current={familyOf(ds).some((x) => x.slug === d.slug) ? 'page' : undefined}>{d.name}</a>
 				{/each}
 			</nav>
 			{#if familyOf(ds).length > 1}
