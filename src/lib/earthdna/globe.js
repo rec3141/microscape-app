@@ -804,7 +804,7 @@ void main() {
 		const dt = Math.min(0.1, (t - last) / 1000); last = t;
 		if (show?.ready) { if (!show.paused) show.t = (show.t + dt) % show.duration; applyShow(show.t); raf = requestAnimationFrame(frame); return; }
 		// dome: the sky turns about the zenith, slowly (fast motion overhead is uncomfortable)
-		if (spin && !dragging) { rot = dome ? mul(rotZ(0.02 * dt / Math.sqrt(zoom)), rot) : mul(rot, rotZ(0.06 * dt / Math.sqrt(zoom))); dirty = true; }
+		if (spin && !dragging) { const a = 0.06 * dt / Math.sqrt(zoom); rot = dome ? mul(rotZ(a / 3), rot) : flat ? mul(rotY(a), rot) : mul(rot, rotZ(a)); dirty = true; }
 		if (morph) {
 			const u = Math.min(1, (t - morph.t0) / morph.dur);
 			morph.t = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
@@ -852,7 +852,10 @@ void main() {
 			return;
 		}
 		const px = (scale()[0] * canvas.clientWidth) / 2;  // pixels per unit radius
-		earthDrag(dx / px, dy / px); dirty = true;
+		// the equal-area map turns freely; the globe turns like Google Earth
+		if (flat) rot = mul(rotY(dx / px), mul(rotX(dy / px), rot));
+		else earthDrag(dx / px, dy / px);
+		dirty = true;
 	});
 	function endPointer(e) {
 		pointers.delete(e.pointerId);
