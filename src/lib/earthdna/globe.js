@@ -1335,6 +1335,8 @@ void main() {
 			layouts.sculpt = makeLayout(new Uint16Array(sb.buffer, 0, N), new Uint16Array(sb.buffer, 2 * N, N));
 			bindLayouts(layouts.sculpt, layouts.sculpt);
 		} else { current = shape = 'similarity'; similarity(); bindLayouts(layouts.similarity, layouts.similarity); }
+		// a globe built without a sculpted layout (globe.json layouts) has nothing for Shaped by to switch to
+		if (meta.layouts && !meta.layouts.includes('sculpt')) $('lSculpt').closest('.row').hidden = true;
 		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === current ? 'true' : 'false');
 		// Model: which embedding placed the points (the DNA-model globe); the first entry's layouts carry no suffix
 		if (meta.models?.length > 1) {
