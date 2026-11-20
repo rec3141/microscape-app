@@ -117,6 +117,11 @@
 			</div>
 		</div>
 		<div class="row ovrow" id="ovRow" hidden><span class="ovtitle">Reads</span></div>
+		<div class="row" id="labelSetRow" hidden>
+			<label class="rankpick highlight" for="labelSet">Labels
+				<select id="labelSet"></select>
+			</label>
+		</div>
 		<div class="row" id="traitRow" hidden>
 			<label class="rankpick highlight" for="trait">Highlight
 				<select id="trait"><option value="-1">All</option></select>
@@ -132,7 +137,9 @@
 	<section id="key" class="card" aria-label="Taxa">
 		<h2>Taxa</h2>
 		{#if taxa}
-			<TaxonPicker bind:this={picker} {taxa} {view} asvsShown={asvVersion > 0} version={asvVersion + refreshVersion} />
+			{#key taxa}
+				<TaxonPicker bind:this={picker} {taxa} {view} asvsShown={asvVersion > 0} version={asvVersion + refreshVersion} />
+			{/key}
 		{:else}
 			<p class="keywait">Loading the taxonomy…</p>
 		{/if}

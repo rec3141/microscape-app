@@ -15,7 +15,7 @@
 
 	const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 	// the rank coloured when nothing is picked: class, which splits each globe into readable regions
-	let base = $state(Math.max(0, taxa.levels.indexOf('class')));
+	let base = $state(taxa.start ?? Math.max(0, taxa.levels.indexOf('class')));
 	let stack = $state<Taxon[]>([]);
 	let query = $state('');
 	let filter = $derived(stack.length ? stack[stack.length - 1] : null);
@@ -48,7 +48,7 @@
 <div class="picker">
 	<AutocompleteInput
 		bind:value={query}
-		placeholder="Find a taxon, e.g. Pseudomonadota"
+		placeholder={taxa.noun === 'category' ? 'Find a category, e.g. Marine' : 'Find a taxon, e.g. Pseudomonadota'}
 		{candidates}
 		expand={expandTaxonQuery}
 		weight={taxa.count}
