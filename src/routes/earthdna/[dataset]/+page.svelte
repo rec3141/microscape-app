@@ -58,6 +58,7 @@
 		<div id="canvasBtns">
 			<button class="btn toggle" id="spin" aria-pressed="false">Spin</button>
 			<button class="btn toggle" id="labelsBtn" aria-pressed="true">Labels</button>
+			<button class="btn toggle" id="sizeBtn" aria-pressed="false" data-small={ds.pointSize ?? 0.5} title="Points: small (click for medium)">Size</button>
 		</div>
 		<div id="hint">Drag: rotate · Scroll or pinch: zoom<br />Double-click: centre · Esc: clear</div>
 	</div>
@@ -107,7 +108,6 @@
 				<button id="vFlat" aria-pressed="false">Equal-area</button>
 				<button id="vDome" aria-pressed="false" title="Fisheye from inside the sphere (a dome master: the front of the dome at the bottom)">Dome</button>
 			</div>
-			<button class="btn" id="sizeBtn" data-small={ds.pointSize ?? 0.5} title="Point size: click to switch">Small points</button>
 		</div>
 		<div class="row" hidden={!data.runs.length}>
 			<button class="btn" id="asvBtn" aria-pressed="false">Show amplicon runs</button>
