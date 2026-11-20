@@ -78,6 +78,7 @@ export interface Taxa {
 	count: (name: string) => number; // references carrying the most-used taxon of that name
 	describe: (name: string) => string; // 'genus · 8,123' for a suggestion list
 	start?: number; // the level coloured when nothing is picked (default: class)
+	title?: string; // the panel heading ('Taxa' by default; a label set's name)
 	noun?: string; // what a name is, for the search box ('taxon' by default; 'category' for environment labels)
 }
 
