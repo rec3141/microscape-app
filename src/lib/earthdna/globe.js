@@ -48,7 +48,7 @@ const regionName = (r) => REGION_NAMES[r] || `alignment columns ${r}`;
 // phones turn the globe with taps and drags only (no point picking), so their hint points to the taxa list instead
 const IDLE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 	? 'Drag to turn the globe. Pick a taxon in the list to highlight it.'
-	: 'Drag to turn the globe. Click a point to pick out its taxon at the colour rank; click empty space to clear.';
+	: 'Drag to turn the globe. Click a point to copy its details; click empty space to clear a pick.';
 
 // danaSeq viz's palette (illumina_amplicon/viz/src/stores/data.svelte.js), so a rank list reads the same in both: a spiral
 // round the colour wheel (golden-angle hue steps, saturation and lightness cycling), one colour per taxon however many
@@ -444,17 +444,19 @@ void main() {
 		const lat = Math.asin(Math.max(-1, Math.min(1, p[2]))) * 180 / Math.PI, lon = Math.atan2(p[1], p[0]) * 180 / Math.PI;
 		const dl = thr * 180 / Math.PI, cj = Math.floor(lon + 180);
 		const r0 = Math.max(0, Math.floor(lat + 90 - dl)), r1 = Math.min(179, Math.floor(lat + 90 + dl));
-		const wl = Math.abs(lat) + dl > 85 ? 180 : Math.ceil(dl / Math.max(0.05, Math.cos((Math.abs(lat) + dl) * Math.PI / 180))) + 1;
+		// columns either side of the cursor's; near a pole, where a degree of longitude is tiny, every column of each row
+		const polar = Math.abs(lat) + dl > 85;
+		const wl = polar ? 0 : Math.ceil(dl / Math.max(0.05, Math.cos((Math.abs(lat) + dl) * Math.PI / 180))) + 1;
+		const j0 = polar ? 0 : cj - wl, ncol = polar ? 360 : 2 * wl + 1;
 		let best = -1, bd = cosT;
-		for (let r = r0; r <= r1; r++) for (let dj = -wl; dj <= wl; dj++) {
-			const c = r * 360 + ((cj + dj) % 360 + 360) % 360;
+		for (let r = r0; r <= r1; r++) for (let dj = 0; dj < ncol; dj++) {
+			const c = r * 360 + ((j0 + dj) % 360 + 360) % 360;
 			for (let k = start[c]; k < start[c + 1]; k++) {
 				const i = idx[k];
 				if (skip(i)) continue;
 				const d = dotLL(pts, i, p0, p1, p2);
 				if (d > bd) { bd = d; best = i; }
 			}
-			if (wl === 180) break;
 		}
 		return best;
 	}
@@ -1072,15 +1074,11 @@ void main() {
 		dirty = true;
 		return ranked;
 	}
-	// a click picks the point's taxon at the rank the globe is coloured by (the picker's Colour by level, kept while a
-	// taxon is picked), so its relatives at that rank light up; a click on empty space clears the pick
+	// a click copies the point's record (copyRecord); a click on empty space clears a pick made in the picker
 	function pickPoint(cx, cy) {
 		const i = nearest(cx, cy);
 		if (i < 0) { if (hasSel || pickedLevel >= 0) onClear(); return; }
-		if (!rankArr) return;
-		copyRecord(i);
-		const lineage = lineageOf(i).filter((x) => x.rank <= baseLevel);
-		if (lineage.length) { pickedLevel = baseLevel; onPick(lineage); }
+		if (rankArr) copyRecord(i);
 	}
 	// a clicked point's record to the clipboard, as "field<TAB>value" lines (pastes as two spreadsheet columns): its
 	// label set record and full label path when a set with one is on, else its taxonomy
