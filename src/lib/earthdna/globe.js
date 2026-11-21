@@ -1064,23 +1064,22 @@ void main() {
 	// the taxon most of its members carry, so a few mislabelled references cannot hang it under the wrong domain
 	function find(name) {
 		const hit = uses(name)[0];
-		if (hit) {
-			const r = hit.rank, c = hit.code;
-			const tally = Array.from({ length: r }, () => new Map());
-			for (let i = 0; i < N; i++) {
-				if (rankCode(r, i) !== c) continue;
-				for (let q = 0; q < r; q++) { const k = rankCode(q, i); tally[q].set(k, (tally[q].get(k) || 0) + 1); }
-			}
-			const out = [];
-			tally.forEach((m, q) => {
-				let best = NONE, n = -1;
-				for (const [k, v] of m) if (k !== NONE && v > n) { best = k; n = v; }
-				if (best !== NONE) out.push({ rank: q, code: best, name: rankNames[q][best] });
-			});
-			out.push({ rank: r, code: c, name: rankNames[r][c] });
-			return out;
+		return hit ? lineageAt(hit.rank, hit.code) : null;
+	}
+	function lineageAt(r, c) {
+		const tally = Array.from({ length: r }, () => new Map());
+		for (let i = 0; i < N; i++) {
+			if (rankCode(r, i) !== c) continue;
+			for (let q = 0; q < r; q++) { const k = rankCode(q, i); tally[q].set(k, (tally[q].get(k) || 0) + 1); }
 		}
-		return null;
+		const out = [];
+		tally.forEach((m, q) => {
+			let best = NONE, n = -1;
+			for (const [k, v] of m) if (k !== NONE && v > n) { best = k; n = v; }
+			if (best !== NONE) out.push({ rank: q, code: best, name: rankNames[q][best] });
+		});
+		out.push({ rank: r, code: c, name: rankNames[r][c] });
+		return out;
 	}
 	// "contains" search (globe.json contains, contains_<rank>.bin from earthdna pack_globe.py --contains): every point
 	// carrying a taxon at or above the threshold, not only the points it labels. A rank's file loads on first use.
@@ -1320,7 +1319,7 @@ void main() {
 		buildLabels();
 		const start = key ? Math.min(2, curLevels.length - 1) : Math.max(0, curLevels.indexOf('class'));
 		view(start, null);
-		onTaxa({ levels: curLevels, names: rankNames, find: findAny, count, describe, start, noun: key ? 'category' : 'taxon', title: key ? meta.labelSets.find((x) => x.key === key).name : 'Taxa', searchNames: searchNames(), predominant: !!meta.contains && !key, lineage: key ? undefined : find });
+		onTaxa({ levels: curLevels, names: rankNames, find: findAny, count, describe, start, noun: key ? 'category' : 'taxon', title: key ? meta.labelSets.find((x) => x.key === key).name : 'Taxa', searchNames: searchNames(), predominant: !!meta.contains && !key, lineage: key ? undefined : find, at: lineageAt });
 		return true;
 	}
 	on(window, 'keydown', (e) => { if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement)) onClear(); });
@@ -1925,7 +1924,7 @@ void main() {
 		$('loading').hidden = true; dirty = true;
 		// amplicon runs load and show only when asked (Show amplicon runs)
 		namesIndex();
-		onTaxa({ levels: R.levels, names: rankNames, find: findAny, count, describe, searchNames: searchNames(), predominant: !!meta.contains, lineage: find });
+		onTaxa({ levels: R.levels, names: rankNames, find: findAny, count, describe, searchNames: searchNames(), predominant: !!meta.contains, lineage: find, at: lineageAt });
 		// Labels: the taxonomy, or a label set the globe carries (e.g. each point's environment)
 		if (meta.labelSets?.length) {
 			const lEl = $('labelSet');
