@@ -44,6 +44,11 @@
 		mark = null;
 	}
 
+	// a row drills into its taxon; from the top list the path starts at the top rank, so every level above stays reachable
+	function pickRow(item: RankedTaxon) {
+		if (!filter && taxa.at) { stack = taxa.at(level, item.code); return; }
+		stack = [...stack, { rank: level, code: item.code, name: item.name, contains: filter?.contains, within: filter?.contains ? (filter.within ?? filter.name) : undefined }];
+	}
 	// a crumb names its taxon; a "contains" search says so
 	const crumb = (t: Taxon) => (t.rank < 0 ? `${t.name} present` : t.name);
 	// with "contains" data and taxonomy shown, + on a row searches for that taxon: every point carrying it
@@ -112,7 +117,7 @@
 				<button
 					class="taxon"
 					disabled={item.code === NONE || (filter !== null && level === filter.rank)}
-					onclick={() => (stack = [...stack, { rank: level, code: item.code, name: item.name, contains: filter?.contains, within: filter?.contains ? (filter.within ?? filter.name) : undefined }])}
+					onclick={() => pickRow(item)}
 				>
 					<span class="sw" style="background:{item.color}"></span>
 					<span class="nm" class:unc={item.code === NONE}>{item.name}</span>
