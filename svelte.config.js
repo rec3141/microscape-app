@@ -5,7 +5,8 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
 	preprocess: vitePreprocess(),
 	kit: {
-		adapter: adapter(),
+		// BUILD_OUT: deploy.sh builds beside the running build, then swaps the two directories
+		adapter: adapter({ out: process.env.BUILD_OUT || 'build' }),
 		// SvelteKit-managed Content Security Policy. `mode: 'hash'` computes
 		// a sha256 for every inline <script> and <style> SvelteKit emits
 		// (SSR data injection, hydration bootstrap) and adds them to the

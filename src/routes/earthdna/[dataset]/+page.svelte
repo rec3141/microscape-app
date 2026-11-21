@@ -98,11 +98,9 @@
 			</div>
 			<p class="sub">
 				{#if ds.tsne === false}
-					<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}{#if ds.sourceLink}
-					(<a href={ds.sourceLink.href} target="_blank" rel="noopener noreferrer">{ds.sourceLink.text}</a>){/if}, placed {ds.method}.
+					<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}{#if ds.sourceLink}{' '}(<a href={ds.sourceLink.href} target="_blank" rel="noopener noreferrer">{ds.sourceLink.text}</a>){/if}, placed {ds.method}.
 				{:else}
-					<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}{#if ds.sourceLink}
-					(<a href={ds.sourceLink.href} target="_blank" rel="noopener noreferrer">{ds.sourceLink.text}</a>){/if}, placed by {ds.method} with
+					<b id="nseq">{ds.count.toLocaleString('en-US')}</b> {ds.source}{#if ds.sourceLink}{' '}(<a href={ds.sourceLink.href} target="_blank" rel="noopener noreferrer">{ds.sourceLink.text}</a>){/if}, placed by {ds.method} with
 					spherical t-SNE (<a href="https://github.com/rec3141/fastsne" target="_blank" rel="noopener noreferrer">fastsne</a>).
 					Nearby {ds.unit[1]} are similar.
 				{/if}

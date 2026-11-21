@@ -107,6 +107,18 @@
 						</a>
 					{/each}
 				</div>
+			{:else}
+				<!-- signed out: the public pages only -->
+				<div class="flex items-center gap-1">
+					{#each navLinks.filter((l) => l.href === '/earthdna') as link}
+						<a
+							href={link.href}
+							class="px-3 py-1.5 rounded text-sm text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+						>
+							{link.label}
+						</a>
+					{/each}
+				</div>
 			{/if}
 
 			<div class="flex items-center gap-3">

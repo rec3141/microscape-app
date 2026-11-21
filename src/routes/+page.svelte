@@ -47,15 +47,6 @@
 		</p>
 	</header>
 
-	{#if !data.signedIn}
-		<a
-			href="/earthdna"
-			class="block rounded border border-slate-800 bg-slate-900/40 px-4 py-3 hover:border-ocean-600 transition-colors"
-		>
-			<span class="text-ocean-400 font-medium">EarthDNA</span><span class="text-sm text-slate-400">: globes of reference genomes, marker genes and metagenomes, open to everyone</span>
-		</a>
-	{/if}
-
 	{#if data.signedIn}
 		<div class="inline-flex rounded-full border border-slate-800 bg-slate-900/60 p-0.5 text-sm" role="tablist">
 			<button
