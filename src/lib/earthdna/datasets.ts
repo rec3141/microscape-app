@@ -39,6 +39,8 @@ export interface Dataset {
 	source: string;
 	/** still of the sculpted globe for the picker (earthdna pipeline/render_preview.py) */
 	preview: string;
+	/** where the source data lives, linked after the source on the globe page */
+	sourceLink?: { text: string; href: string };
 	/** how points were placed, for the page text */
 	method: string;
 	/** false for a globe laid out by something other than fastsne (a map), so the page does not say t-SNE placed it */
@@ -152,6 +154,7 @@ export const DATASETS: Dataset[] = [
 		unit: ['mOTU', 'mOTUs'],
 		blurb: 'Every species-level cluster (mOTU) of mOTUs-db 4.1 found in a metagenome, placed by its marker gene 5-mers or by which of 115k metagenomes it occurs in: switch under Model.',
 		source: 'mOTUs-db 4.1 species-level clusters (GTDB r226 taxonomy)',
+		sourceLink: { text: 'motus-db.org', href: 'https://motus-db.org' },
 		preview: '/earthdna/previews/motus.webp',
 		method: 'marker gene 5-mers or co-occurrence across metagenomes (pick one under Model)',
 		pointSize: 1.5
@@ -166,6 +169,7 @@ export const DATASETS: Dataset[] = [
 		unit: ['metagenome', 'metagenomes'],
 		blurb: 'The 114k public metagenomes profiled by mOTUs-db 4.1, placed by their mOTU composition and labelled by their most abundant taxon.',
 		source: 'metagenomes profiled by mOTUs-db 4.1, labelled by their most abundant taxon',
+		sourceLink: { text: 'motus-db.org', href: 'https://motus-db.org' },
 		preview: '/earthdna/previews/motus-samples.webp',
 		method: 'mOTU composition (Hellinger distance)',
 		pointSize: 1.5,
@@ -181,7 +185,8 @@ export const DATASETS: Dataset[] = [
 		count: 83343,
 		unit: ['metagenome', 'metagenomes'],
 		blurb: 'The 83k mOTUs-db 4.1 metagenomes that have coordinates, on the Earth where they were sampled.',
-		source: 'mOTUs-db 4.1 metagenomes with coordinates (motus-db.org)',
+		source: 'mOTUs-db 4.1 metagenomes with coordinates',
+		sourceLink: { text: 'motus-db.org', href: 'https://motus-db.org' },
 		preview: '/earthdna/previews/motus-samples-map.webp',
 		method: 'where they were sampled',
 		tsne: false,
