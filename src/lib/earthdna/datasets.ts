@@ -160,7 +160,7 @@ export const DATASETS: Dataset[] = [
 		slug: 'motus-samples',
 		name: 'mOTU-Samples',
 		base: '/earthdna/motus41-samples',
-		version: 'motus41-samples-4-dedup',
+		version: 'motus41-samples-5-exag2',
 		release: null,
 		count: 114160,
 		unit: ['metagenome', 'metagenomes'],
