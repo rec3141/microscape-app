@@ -61,6 +61,7 @@ export interface Taxon {
 	rank: number;
 	code: number;
 	name: string;
+	contains?: string; // a "contains" search: every point carrying this taxon (rank and code are -1)
 }
 
 export interface RankedTaxon {
@@ -74,11 +75,12 @@ export interface RankedTaxon {
 export interface Taxa {
 	levels: string[];
 	names: string[][];
-	find: (name: string) => Taxon[] | null;
+	find: (name: string) => Taxon[] | null | Promise<Taxon[] | null>;
 	count: (name: string) => number; // references carrying the most-used taxon of that name
 	describe: (name: string) => string; // 'genus · 8,123' for a suggestion list
 	start?: number; // the level coloured when nothing is picked (default: class)
-	title?: string; // the panel heading ('Taxa' by default; a label set's name)
+	title?: string;
+	searchNames?: string[]; // what the search box suggests, when it can find more than the label names // the panel heading ('Taxa' by default; a label set's name)
 	noun?: string; // what a name is, for the search box ('taxon' by default; 'category' for environment labels)
 }
 

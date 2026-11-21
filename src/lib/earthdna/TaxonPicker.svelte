@@ -19,7 +19,8 @@
 	let stack = $state<Taxon[]>([]);
 	let query = $state('');
 	let filter = $derived(stack.length ? stack[stack.length - 1] : null);
-	let level = $derived(filter ? Math.min(filter.rank + 1, taxa.levels.length - 1) : base);
+	// a "contains" search lists its points at the Colour by level; a picked taxon lists the level below it
+	let level = $derived(filter ? (filter.contains ? base : Math.min(filter.rank + 1, taxa.levels.length - 1)) : base);
 	let ranked = $state<RankedTaxon[]>([]);
 
 	// the globe colours every taxon; the list draws the first rows (a GTDB species list has 143k)
@@ -31,7 +32,7 @@
 		shown = PAGE;
 	});
 
-	let candidates = $derived([...new Set(taxa.names.flat().filter(Boolean))]);
+	let candidates = $derived(taxa.searchNames ?? [...new Set(taxa.names.flat().filter(Boolean))]);
 
 	/** Show this lineage, deepest taxon picked; Up then walks back through its ancestors. */
 	export function show(lineage: Taxon[] | null) {
@@ -39,8 +40,8 @@
 		query = '';
 	}
 
-	function navigateToTaxon(name: string) {
-		const lineage = taxa.find(name);
+	async function navigateToTaxon(name: string) {
+		const lineage = await taxa.find(name);
 		if (lineage) show(lineage);
 	}
 </script>
@@ -48,7 +49,7 @@
 <div class="picker">
 	<AutocompleteInput
 		bind:value={query}
-		placeholder={taxa.noun === 'category' ? 'Find a category, e.g. Marine' : 'Find a taxon, e.g. Pseudomonadota'}
+		placeholder={taxa.noun === 'category' ? (taxa.searchNames ? 'Find a category or taxon, e.g. Marine, Prevotella' : 'Find a category, e.g. Marine') : 'Find a taxon, e.g. Pseudomonadota'}
 		{candidates}
 		expand={expandTaxonQuery}
 		weight={taxa.count}

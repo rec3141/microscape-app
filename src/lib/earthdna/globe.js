@@ -980,7 +980,8 @@ void main() {
 			// genus or species, which the first line already names)
 			const g = meta.genera[gen[T(i)]], sp = meta.species[spc[T(i)]], gr = meta.groups[grp[i]] || 'other';
 			tip.innerHTML = '<div class="g"></div><div class="m"></div>';
-			tip.children[0].textContent = sp || (g ? g + ' sp.' : 'Unclassified');
+			const pc = tipPct && tipPct[i] !== 255 ? `${tipPct[i]}% ` : '';  // the dominant taxon's share (globe.json tipPercent)
+			tip.children[0].textContent = pc + (sp || (g ? g + ' sp.' : 'Unclassified'));
 			let second = gr.replace(' · ', ' › ');
 			if (rankArr) {
 				const r = labelKey ? curLevel : curLevel >= 5 ? 4 : curLevel, c = rankCode(r, i), lv = curLevels[r];
@@ -1000,7 +1001,7 @@ void main() {
 	// rank 0 domain (from the group), 1-4 phylum..family (ranks.bin), 5 genus, 6 species (tax.bin); NONE = unranked
 	const taxCode = (r, i) => r === 0 ? domIx[grp[i]] : r <= 4 ? rankArr[r - 1][T(i)] : r === 5 ? gen[T(i)] : spc[T(i)];
 	// a label set (globe.json labelSets) replaces the taxonomy everywhere the ranks are read: codes per point and level
-	let labelKey = '', setArr = null, taxNames = null, curLevels = null;
+	let labelKey = '', setArr = null, taxNames = null, curLevels = null, tipPct = null;
 	let rankCode = taxCode;
 	function lineageOf(i) {
 		const out = [];
@@ -1050,10 +1051,52 @@ void main() {
 		}
 		return null;
 	}
+	// "contains" search (globe.json contains, contains_<rank>.bin from earthdna pack_globe.py --contains): every point
+	// carrying a taxon at or above the threshold, not only the points it labels. A rank's file loads on first use.
+	const containsFiles = new Map(), memberCache = new Map();
+	let containsIndex = null;  // lower-cased name -> { rank, t }, first rank (phylum .. species) that has the name
+	function containsLookup(name) {
+		if (!meta.contains) return null;
+		if (!containsIndex) {
+			containsIndex = new Map();
+			for (const rk of meta.contains.ranks) meta.contains.names[rk].forEach((n, t) => { const k = n.toLowerCase(); if (!containsIndex.has(k)) containsIndex.set(k, { rank: rk, t, name: n }); });
+		}
+		return containsIndex.get((name || '').toLowerCase()) || null;
+	}
+	async function containsMembers(hit) {
+		const key = `${hit.rank}\t${hit.name}`;
+		if (memberCache.has(key)) return key;
+		let f = containsFiles.get(hit.rank);
+		if (!f) {
+			$('status').textContent = `Loading which ${unit} contain each ${hit.rank}…`;
+			const b = await fetchBin(`contains_${hit.rank}.bin`);
+			const n = new DataView(b.buffer, b.byteOffset).getUint32(0, true);
+			f = { offs: new Uint32Array(b.buffer.slice(b.byteOffset + 4, b.byteOffset + 8 + 4 * n)), data: b.subarray(8 + 4 * n) };
+			containsFiles.set(hit.rank, f);
+		}
+		const m = new Uint8Array(N), d = f.data;
+		let x = 0, shift = 0, pos = -1;
+		for (let k = f.offs[hit.t]; k < f.offs[hit.t + 1]; k++) {
+			const c = d[k]; x |= (c & 0x7f) << shift; shift += 7;
+			if (c < 0x80) { pos += x; m[pos] = 1; x = 0; shift = 0; }
+		}
+		memberCache.set(key, m);
+		return key;
+	}
+	// what the search box finds: with the taxonomy shown, a taxon matches every point that contains it; with a label
+	// set (e.g. environment), its own names first, then taxa by what points contain
+	async function findAny(name) {
+		const hit = containsLookup(name);
+		if (hit && !labelKey) { try { return [{ rank: -1, code: -1, name: hit.name, contains: await containsMembers(hit) }]; } catch { /* fall back to labels */ } }
+		const own = find(name);
+		if (own || !hit) return own;
+		try { return [{ rank: -1, code: -1, name: hit.name, contains: await containsMembers(hit) }]; } catch { return null; }
+	}
+	const searchNames = () => meta.contains ? [...new Set([...rankNames.flat(), ...meta.contains.ranks.flatMap((rk) => meta.contains.names[rk])].filter(Boolean))] : undefined;
 	const count = (name) => uses(name)[0]?.count ?? 0;
 	function describe(name) {
 		const u = uses(name);
-		if (!u.length) return '';
+		if (!u.length) { const h = containsLookup(name); return h ? `${h.rank} · present in ${unit}` : ''; }
 		return `${curLevels[u[0].rank]} · ${u[0].count.toLocaleString()}` + (u.length > 1 ? ` (+${u.length - 1} more)` : '');
 	}
 	let curLevel = 2;  // the rank the globe is coloured by (view() sets it); the tooltip names the point's taxon there
@@ -1062,10 +1105,11 @@ void main() {
 		if (!rankArr) return [];
 		curLevel = level;
 		if (!filter) { baseLevel = level; pickedLevel = -1; }
+		const cm = filter?.contains ? memberCache.get(filter.contains) : null;  // a "contains" search (findAny)
 		const counts = new Map();
 		let members = 0;
 		for (let i = 0; i < N; i++) {
-			const inside = (!filter || rankCode(filter.rank, i) === filter.code) && (trait < 0 || (((traits[T(i)] >> trait) & 1) === 1) !== traitNeg);
+			const inside = (!filter || (cm ? cm[i] === 1 : rankCode(filter.rank, i) === filter.code)) && (trait < 0 || (((traits[T(i)] >> trait) & 1) === 1) !== traitNeg);
 			sel[i] = inside ? 1 : 0;
 			if (!inside) continue;
 			members++;
@@ -1088,7 +1132,7 @@ void main() {
 		gl.bindBuffer(gl.ARRAY_BUFFER, cidxBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, cidx);
 		gl.bindBuffer(gl.ARRAY_BUFFER, selBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, sel);
 		// ASVs: kept when their lineage names the filter taxon; counted against each listed taxon by name
-		asvFilter = filter ? norm(rankNames[filter.rank][filter.code]) : '';
+		asvFilter = filter ? norm(filter.contains ? filter.name : rankNames[filter.rank][filter.code]) : '';
 		if (asv) {
 			const byName = new Map(ranked.map((t) => [norm(t.name), t]));
 			for (const t of ranked) t.asvs = 0;
@@ -1099,7 +1143,7 @@ void main() {
 			}
 			syncAsvOn();
 		}
-		const what = filter ? rankNames[filter.rank][filter.code] : '';
+		const what = filter ? (filter.contains ? `${filter.name} present` : rankNames[filter.rank][filter.code]) : '';
 		if (!flagMode) $('status').textContent = what ? `${what} · ${members.toLocaleString()} ${unit}` : IDLE;  // disagreements keep their summary
 		dirty = true;
 		return ranked;
@@ -1142,12 +1186,14 @@ void main() {
 		const parts = [];
 		let la = '', lo = '';
 		cols.forEach((c, k) => {
-			if (k === 0 || !v[k]) return;
+			if (k === 0 || !v[k] || c === 'Dominant') return;
 			if (c === 'lat') la = v[k]; else if (c === 'lon') lo = v[k];
 			else if (/^\d+$/.test(v[k])) parts.push(`${c} ${(+v[k]).toLocaleString()}`);
 			else parts.push(c === 'taxon' ? v[k] : `${c} ${v[k]}`);
 		});
 		if (parts.length) line('', parts.join(' · '));
+		const di = cols.indexOf('Dominant');
+		if (di > 0 && v[di]) line('', `Dominant: ${v[di]}`);
 		const path = [];
 		for (let r = 1; r < curLevels.length; r++) { const c = setArr[r][i]; const nm = c !== NONE ? rankNames[r][c] : null; if (nm && nm !== path[path.length - 1]) path.push(nm); }
 		if (path.length) line('m', (S.tip ? S.tip + ' ' : '') + path.join(' › '));
@@ -1187,7 +1233,7 @@ void main() {
 		buildLabels();
 		const start = key ? Math.min(2, curLevels.length - 1) : Math.max(0, curLevels.indexOf('class'));
 		view(start, null);
-		onTaxa({ levels: curLevels, names: rankNames, find, count, describe, start, noun: key ? 'category' : 'taxon', title: key ? meta.labelSets.find((x) => x.key === key).name : 'Taxa' });
+		onTaxa({ levels: curLevels, names: rankNames, find: findAny, count, describe, start, noun: key ? 'category' : 'taxon', title: key ? meta.labelSets.find((x) => x.key === key).name : 'Taxa', searchNames: searchNames() });
 		return true;
 	}
 	on(window, 'keydown', (e) => { if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement)) onClear(); });
@@ -1624,6 +1670,7 @@ void main() {
 		const R = meta.ranks;
 		rankNames = taxNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
 		curLevels = R.levels;
+		if (meta.tipPercent) { try { const b = await fetchBin('tippct.bin'); if (b.length === N) tipPct = b; } catch { /* no percentages */ } }
 		// Highlight: genome traits (traits.bin, GTDB) and taxonomic disagreements (flags.bin, the label checks)
 		const selEl = $('trait');
 		selEl.options[0].textContent = `All ${unit}`;
@@ -1654,7 +1701,7 @@ void main() {
 		$('loading').hidden = true; dirty = true;
 		// amplicon runs load and show only when asked (Show amplicon runs)
 		namesIndex();
-		onTaxa({ levels: R.levels, names: rankNames, find, count, describe });
+		onTaxa({ levels: R.levels, names: rankNames, find: findAny, count, describe, searchNames: searchNames() });
 		// Labels: the taxonomy, or a label set the globe carries (e.g. each point's environment)
 		if (meta.labelSets?.length) {
 			const lEl = $('labelSet');
