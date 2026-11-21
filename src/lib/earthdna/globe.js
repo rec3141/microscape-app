@@ -32,6 +32,10 @@ import { TAXON_SYNONYMS } from './taxa';
  *   &labelScale=k  dome label size (default 1.5)
  *   &ui=0          hide the cards (for a projector or a dome)
  *   ?show=URL      play a keyframed show (static/earthdna/shows/; the format is above initShow), panels hidden
+ *   ?wall=COLS&screen=I[&bezel=PX]  draw column I (0 = leftmost) of a picture COLS screens wide, full window, with PX css
+ *                  pixels hidden behind each bezel (a multi-screen wall such as a Liquid Galaxy)
+ *   ?sync=ROOM     follow the other screens in ROOM through /earthdna/sync/ROOM (see the sync section); &lead to lead at
+ *                  start and take the 3D mouse, &navspeed=k its sensitivity
  *
  * view(level, filter) colours the references by their taxa at rank `level`
  * among those inside `filter` ({ rank, code } or null; outside it they dim),
@@ -89,7 +93,7 @@ export function mountGlobe(root, { base, version = '', release, runs, unit = 'se
 		return p;
 	}
 	const PROJ = `
-uniform mat3 uRot; uniform float uFlat; uniform vec2 uScale; uniform vec3 uCam;
+uniform mat3 uRot; uniform float uFlat; uniform vec2 uScale; uniform vec3 uCam; uniform vec2 uOff;
 const float PI = 3.14159265;
 float pDist = 1.0;  // dome: the point's distance from the camera, set by project()
 // how squarely a point faces the viewer on the globe (1 centre, 0 limb; 1 everywhere on the flat map): points are
@@ -102,7 +106,10 @@ float shrink(vec3 p) { return uFlat > 1.5 ? clamp(pow(pDist, -0.6), 0.5, 6.0) : 
 // globe: a mild perspective from a camera CAM radii away; FOC = sqrt(CAM^2 - 1) keeps the outline on the unit circle,
 // and a point is visible when it is in front of the horizon seen from the camera (q.z > 1 / CAM)
 const float CAM = 4.5, FOC = 4.3874822;
-vec3 project(vec3 p) {
+vec3 projectWall(vec3 p);
+// on a wall (uOff), this screen's slice of the whole picture
+vec3 project(vec3 p) { vec3 s = projectWall(p); s.xy += uOff; return s; }
+vec3 projectWall(vec3 p) {
   vec3 q = uRot * p;
   if (uFlat > 1.5) {
     // dome: camera inside the sphere at uCam, looking at the zenith (+z); equidistant fisheye, 180 degrees across the
@@ -203,7 +210,7 @@ in vec2 aP; out vec2 vP;
 void main() { vP = aP; gl_Position = vec4(aP, 0.99, 1.0); }`, `#version 300 es
 precision highp float;
 in vec2 vP; out vec4 o;
-uniform mat3 uRot; uniform float uFlat; uniform vec2 uScale; uniform vec3 uCam;
+uniform mat3 uRot; uniform float uFlat; uniform vec2 uScale; uniform vec3 uCam; uniform vec2 uOff;
 uniform sampler2D uLandTex; uniform float uLand;
 const float PI = 3.14159265, CAM = 4.5, FOC = 4.3874822;
 // land under a map layout: the view-space point q back to the world, then the land mask (equirectangular, north up),
@@ -215,7 +222,7 @@ vec3 land(vec3 c, vec3 q) {
   return mix(c, vec3(0.62, 0.70, 0.80) * (0.6 + 0.4 * c.b / 0.157), 0.16 * uLand * texture(uLandTex, uv).r);
 }
 void main() {
-  vec2 s = vP / uScale;
+  vec2 s = (vP - uOff) / uScale;
   vec3 ocean = vec3(0.047, 0.094, 0.157), space = vec3(0.008, 0.024, 0.090);
   if (uFlat > 1.5) {
     // dome master: the sphere's inside fills the disc, kept dark (a dome lights itself); black outside it
@@ -298,10 +305,17 @@ void main() {
 		dirty = true;
 	}
 
-	function scale() {
-		const w = canvas.width, h = canvas.height;
-		if (dome) { const m = Math.min(w, h); return [m / w, m / h]; }  // the disc touches the frame; zoom is in cam()
-		const b = flat ? Math.min(0.665 * w, 1.33 * h) : 0.92 * Math.min(w, h);  // pixels per two units of radius
+	// ---------- wall (?wall=COLS&screen=I&bezel=PX): every screen works out the whole wall's picture (labels included,
+	// so neighbouring screens agree) and draws its own column of it. All screens must be the same size.
+	const WALL = Q.has('wall') ? { cols: Math.max(1, +Q.get('wall') || 1), i: Math.max(0, +(Q.get('screen') || 0)), bez: +(Q.get('bezel') || 0) } : null;
+	const wallSpan = (w) => WALL ? WALL.cols * w + (WALL.cols - 1) * WALL.bez * w / Math.max(1, canvas.clientWidth) : w;  // in w's units
+	const wallX0 = (w) => WALL ? WALL.i * (w + WALL.bez * w / Math.max(1, canvas.clientWidth)) : 0;  // this screen's left edge
+	const wallOff = () => WALL ? (wallSpan(canvas.clientWidth) - 2 * wallX0(canvas.clientWidth)) / Math.max(1, canvas.clientWidth) - 1 : 0;  // clip x shift
+	const wallMin = (w, h) => Math.min(wallSpan(w), h);
+	function scale() {  // to this screen's clip space, before wallOff
+		const w = canvas.width, h = canvas.height, W = wallSpan(w);
+		if (dome) { const m = Math.min(W, h); return [m / w, m / h]; }  // the disc touches the frame; zoom is in cam()
+		const b = flat ? Math.min(0.665 * W, 1.33 * h) : 0.92 * Math.min(W, h);  // pixels per two units of radius
 		return [b * zoom / w, b * zoom / h];
 	}
 	function resize() {
@@ -435,7 +449,7 @@ void main() {
 	// nearest point within 8 px of the cursor, from a cell index
 	function nearestIn(p, pts, start, idx, skip) {
 		// the centre is magnified; in the dome, by nearness (hitDist from the screenToWorld just before)
-		const pxPerRad = dome ? Math.min(canvas.clientWidth, canvas.clientHeight) / Math.PI / hitDist
+		const pxPerRad = dome ? wallMin(canvas.clientWidth, canvas.clientHeight) / Math.PI / hitDist
 			: (scale()[0] * canvas.clientWidth) / 2 * (flat ? 0.9 : FOC / (CAM - 1));
 		return nearestWithin(p, pts, start, idx, 8 / pxPerRad, skip);
 	}
@@ -581,15 +595,16 @@ void main() {
 		const box = $('labels');
 		if (!labelSets.length || morph || !labelsOn) { for (const el of labelPool) el.hidden = true; return; }
 		if (dome) return placeDomeLabels();
-		const w = canvas.clientWidth, h = canvas.clientHeight, sc = scale();
-		const pxR = sc[0] * w / 2 * (flat ? 0.9 : 1), minDim = Math.min(w, h);
+		// worked out on the whole wall (w wide); each screen shows the ones on its slice
+		const lw = canvas.clientWidth, h = canvas.clientHeight, sc = scale(), w = wallSpan(lw), X0 = wallX0(lw), cap = WALL ? WALL.cols : 1;
+		const pxR = sc[0] * lw / 2 * (flat ? 0.9 : 1), minDim = Math.min(w, h);
 		const taken = [], GAPX = 22, GAPY = 12;
-		let used = 0;
+		let used = 0, dom = 0;
 		const fits = (x0, y0, x1, y1) => { for (const r of taken) if (x0 < r[2] && x1 > r[0] && y0 < r[3] && y1 > r[1]) return false; return true; };
 		for (const set of labelSets) {
 			let shownHere = 0;
 			for (const L of set) {
-				if (used >= 55 || shownHere >= (L.geo ? 45 : 20)) break;  // about a third of the earlier 160 / 60
+				if (used >= 55 * cap || shownHere >= (L.geo ? 45 : 20) * cap) break;  // about a third of the earlier 160 / 60
 				const rpx = L.spread * pxR;
 				if (rpx < 26 || (!L.geo && rpx > 0.9 * minDim)) continue;
 				const q = toView(L.p);
@@ -600,29 +615,31 @@ void main() {
 					let t = phi; for (let k = 0; k < 6; k++) t -= (2 * t + Math.sin(2 * t) - Math.PI * Math.sin(phi)) / (2 + 2 * Math.cos(2 * t) + 1e-6);
 					x = 0.9003163 * lam * Math.cos(t) * 0.5; y = 1.4142136 * Math.sin(t) * 0.5;
 				}
-				const sx = (x * sc[0] + 1) / 2 * w, sy = (1 - y * sc[1]) / 2 * h;
+				const sx = x * sc[0] * lw / 2 + w / 2, sy = (1 - y * sc[1]) / 2 * h;
 				const fs = L.cls === 'L0' ? 17 : L.cls === 'L1' ? 13.6 : L.cls === 'L4' || L.cls === 'Lg' ? 11.8 : 12.5, cw = L.cls === 'L0' ? fs * 0.95 : fs * 0.56;
 				const tw = L.text.length * cw, th = fs * 1.3;
 				const x0 = sx - tw / 2, y0 = sy - th / 2;
 				// each label keeps a clear margin (GAPX, GAPY) around it, so the ones shown spread over the globe
 				if (x0 < 4 || y0 < 4 || x0 + tw > w - 4 || y0 + th > h - 4 || !fits(x0 - GAPX, y0 - GAPY, x0 + tw + GAPX, y0 + th + GAPY)) continue;
 				taken.push([x0 - GAPX, y0 - GAPY, x0 + tw + GAPX, y0 + th + GAPY]);
-				let el = labelPool[used];
+				used++; shownHere++;
+				if (x0 + tw < X0 || x0 > X0 + lw) continue;  // on another screen
+				let el = labelPool[dom];
 				if (!el) { el = document.createElement('span'); box.appendChild(el); labelPool.push(el); }
 				if (el.textContent !== L.text) el.textContent = L.text;
 				if (el.className !== L.cls) el.className = L.cls;
-				el.style.transform = `translate(${x0.toFixed(1)}px, ${y0.toFixed(1)}px)`;
-				el.hidden = false; used++; shownHere++;
+				el.style.transform = `translate(${(x0 - X0).toFixed(1)}px, ${y0.toFixed(1)}px)`;
+				el.hidden = false; dom++;
 			}
 		}
-		for (let k = used; k < labelPool.length; k++) labelPool[k].hidden = true;
+		for (let k = dom; k < labelPool.length; k++) labelPool[k].hidden = true;
 	}
 	// dome labels: centred on their anchor, upright for someone facing them (their tops point at the zenith), sized
 	// as a fraction of the dome so a frame of any resolution reads the same
 	function placeDomeLabels() {
-		const box = $('labels'), w = canvas.clientWidth, h = canvas.clientHeight, R = Math.min(w, h) / 2;
+		const lw = canvas.clientWidth, box = $('labels'), w = wallSpan(lw), X0 = wallX0(lw), h = canvas.clientHeight, R = Math.min(w, h) / 2;
 		const k = R / 500 * labelScale, c = cam(), pxPerRad = R / (Math.PI / 2);
-		const taken = []; let used = 0;
+		const taken = []; let used = 0, dom = 0;
 		const fits = (x0, y0, x1, y1) => { for (const r of taken) if (x0 < r[2] && x1 > r[0] && y0 < r[3] && y1 > r[1]) return false; return true; };
 		for (const set of labelSets) {
 			let shownHere = 0;
@@ -641,15 +658,17 @@ void main() {
 				const hw = (tw * ca + th * sa) / 2, hh = (tw * sa + th * ca) / 2;
 				if (Math.hypot(sx - w / 2, sy - h / 2) + Math.max(hw, hh) > R || !fits(sx - hw, sy - hh, sx + hw, sy + hh)) continue;
 				taken.push([sx - hw, sy - hh, sx + hw, sy + hh]);
-				let el = labelPool[used];
+				used++; shownHere++;
+				if (sx + hw < X0 || sx - hw > X0 + lw) continue;  // on another screen
+				let el = labelPool[dom];
 				if (!el) { el = document.createElement('span'); box.appendChild(el); labelPool.push(el); }
 				if (el.textContent !== L.text) el.textContent = L.text;
 				if (el.className !== L.cls) el.className = L.cls;
-				el.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px) rotate(${ang.toFixed(4)}rad) scale(${k.toFixed(3)}) translate(-50%, -50%)`;
-				el.hidden = false; used++; shownHere++;
+				el.style.transform = `translate(${(sx - X0).toFixed(1)}px, ${sy.toFixed(1)}px) rotate(${ang.toFixed(4)}rad) scale(${k.toFixed(3)}) translate(-50%, -50%)`;
+				el.hidden = false; dom++;
 			}
 		}
-		for (let j = used; j < labelPool.length; j++) labelPool[j].hidden = true;
+		for (let j = dom; j < labelPool.length; j++) labelPool[j].hidden = true;
 	}
 
 	// ---------- draw
@@ -764,6 +783,7 @@ void main() {
 			gl.uniform1f(gl.getUniformLocation(p, 'uFlat'), fl);
 			gl.uniform3f(gl.getUniformLocation(p, 'uCam'), cm[0], cm[1], cm[2]);
 			gl.uniform2f(gl.getUniformLocation(p, 'uScale'), sc[0], sc[1]);
+			gl.uniform2f(gl.getUniformLocation(p, 'uOff'), wallOff(), 0);
 		};
 		const ca = coast ? coastAlpha() : 0;
 		gl.useProgram(bgProg); gl.bindVertexArray(bgVao);
@@ -791,9 +811,9 @@ void main() {
 		}
 		gl.useProgram(ptProg); gl.bindVertexArray(ptVao);
 		proj(ptProg);
-		const dpr = canvas.width / Math.max(1, canvas.clientWidth), alpha = show?.ov ? show.ov.alpha : 1;
+		const ov = show?.ov || syncOv, dpr = canvas.width / Math.max(1, canvas.clientWidth), alpha = ov ? ov.alpha : 1;
 		// dome: sized as a fraction of the disc (so any frame resolution looks the same); nearness enlarges points in the shader
-		const size = (show?.ov ? show.ov.size : pointSize()) * (dome ? Math.min(canvas.width, canvas.height) / 900 : dpr * Math.pow(zoom, 0.45));
+		const size = (ov ? ov.size : pointSize()) * (dome ? wallMin(canvas.width, canvas.height) / 900 : dpr * Math.pow(zoom, 0.45));
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uSize'), size);
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uAlpha'), alpha * (asvShown() ? 0.28 : ovShown() ? 0.35 : 1));
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uHasSel'), hasSel ? 1 : 0);
@@ -829,6 +849,8 @@ void main() {
 	function frame(t) {
 		if (!alive) return;
 		const dt = Math.min(0.1, (t - last) / 1000); last = t;
+		if (SYNC && !leading) { if (dirty) { draw(); placeLabels(); dirty = false; } raf = requestAnimationFrame(frame); return; }
+		if (navActive()) applyNav(dt);
 		if (show?.ready) { if (!show.paused) show.t = (show.t + dt) % show.duration; applyShow(show.t); raf = requestAnimationFrame(frame); return; }
 		// dome: the sky turns about the zenith, slowly (fast motion overhead is uncomfortable)
 		if (spin && !dragging) { const a = 0.06 * dt / Math.sqrt(zoom); rot = dome ? mul(rotZ(a / 3), rot) : flat ? mul(rotY(a), rot) : mul(rot, rotZ(a)); dirty = true; }
@@ -838,7 +860,7 @@ void main() {
 			dirty = true;
 			if (u >= 1) { const L = morph.to; morph = null; bindLayouts(L, L); buildIndex(L); if (asv) bindAsvLayout(current); }
 		}
-		if (dirty) { draw(); placeLabels(); dirty = false; }
+		if (dirty) { draw(); placeLabels(); dirty = false; broadcast(); }
 		raf = requestAnimationFrame(frame);
 	}
 
@@ -906,7 +928,7 @@ void main() {
 	let hitDist = 1;
 	function screenToView(cx, cy) {
 		const r = canvas.getBoundingClientRect(), sc = scale();
-		const x = ((cx - r.left) / r.width * 2 - 1) / sc[0], y = (1 - (cy - r.top) / r.height * 2) / sc[1], rr = Math.hypot(x, y);
+		const x = ((cx - r.left) / r.width * 2 - 1 - wallOff()) / sc[0], y = (1 - (cy - r.top) / r.height * 2) / sc[1], rr = Math.hypot(x, y);
 		if (rr > 1) return null;
 		const th = rr * Math.PI / 2, s = rr > 1e-6 ? Math.sin(th) / rr : 0, d = [-x * s, y * s, Math.cos(th)], c = cam();
 		const b = c[0] * d[0] + c[1] * d[1] + c[2] * d[2], t = -b + Math.sqrt(Math.max(0, b * b - (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) + 1));
@@ -922,7 +944,7 @@ void main() {
 	// screen -> world unit vector (or null off the map)
 	function screenToWorld(cx, cy) {
 		const r = canvas.getBoundingClientRect(), sc = scale();
-		const x = ((cx - r.left) / r.width * 2 - 1) / sc[0], y = (1 - (cy - r.top) / r.height * 2) / sc[1];
+		const x = ((cx - r.left) / r.width * 2 - 1 - wallOff()) / sc[0], y = (1 - (cy - r.top) / r.height * 2) / sc[1];
 		let q;
 		if (dome) { q = screenToView(cx, cy); if (!q) return null; }
 		else if (!flat) {
@@ -1100,9 +1122,11 @@ void main() {
 		return `${curLevels[u[0].rank]} · ${u[0].count.toLocaleString()}` + (u.length > 1 ? ` (+${u.length - 1} more)` : '');
 	}
 	let curLevel = 2;  // the rank the globe is coloured by (view() sets it); the tooltip names the point's taxon there
+	let lastView = null, lastRanked = [];  // view()'s last arguments and answer, for the other screens of a wall
 	let baseLevel = 2, pickedLevel = -1;  // the Colour by rank (the level shown with nothing picked); a click picks at it
 	function view(level, filter) {
 		if (!rankArr) return [];
+		lastView = { level, filter };
 		curLevel = level;
 		if (!filter) { baseLevel = level; pickedLevel = -1; }
 		const cm = filter?.contains ? memberCache.get(filter.contains) : null;  // a "contains" search (findAny)
@@ -1146,6 +1170,7 @@ void main() {
 		const what = filter ? (filter.contains ? `${filter.name} present` : rankNames[filter.rank][filter.code]) : '';
 		if (!flagMode) $('status').textContent = what ? `${what} · ${members.toLocaleString()} ${unit}` : IDLE;  // disagreements keep their summary
 		dirty = true;
+		lastRanked = ranked;
 		return ranked;
 	}
 	// a click copies the point's record (copyRecord); a click on empty space clears a pick made in the picker
@@ -1481,6 +1506,7 @@ void main() {
 			const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = o.colour;
 			b.append(sw, document.createTextNode(o.label));
 			b.title = `${o.n.toLocaleString()} reads`;
+			o.btn = b;
 			on(b, 'click', () => toggleOverlay(o, b));
 			row.appendChild(b);
 		}
@@ -1565,12 +1591,13 @@ void main() {
 		const mu = m > 0 ? (t - K[m].t) / show.morphDur : 1, from = mu < 1 ? K[m - 1].layout : a.layout;
 		if (show.bound !== from + '>' + a.layout) { bindLayouts(layouts[from], layouts[a.layout]); show.bound = from + '>' + a.layout; }
 		morph = mu < 1 ? { t: mu < 0.5 ? 4 * mu * mu * mu : 1 - Math.pow(-2 * mu + 2, 3) / 2 } : null;
+		if (morph) prevLayout = from;
 		if (!morph && show.indexed !== a.layout) { buildIndex(layouts[a.layout]); if (asv) bindAsvLayout(a.layout); show.indexed = a.layout; }
 		current = a.layout;
 		// selection goes through the picker (as a click would), which colours the globe by the rank below it
 		if (a.select !== show.sel) { show.sel = a.select; const lineage = a.select && showFind(a.select); if (lineage) onPick(lineage); else onClear(); }
 		if (a.flags !== flagMode) setColour(a.flags);
-		draw(); placeLabels(); dirty = false;
+		draw(); placeLabels(); dirty = false; broadcast();
 	}
 	on(window, 'keydown', (e) => {
 		if (!show?.ready) return;
@@ -1578,6 +1605,126 @@ void main() {
 		if (e.key === 'ArrowRight') show.t = Math.min(show.duration, show.t + 5);
 		if (e.key === 'ArrowLeft') show.t = Math.max(0, show.t - 5);
 	});
+
+
+	// ---------- sync across screens (?sync=ROOM through /earthdna/sync/ROOM, src/routes/earthdna/sync): one screen leads
+	// and sends its state each time it draws; the others draw what they are sent. Touching a screen (pointer, wheel,
+	// keys) makes it the leader, so the controls work from whichever screen the pointer is on. The 3D mouse arrives
+	// through the same room (earthdna viewer/lg_server.py --relay); the leader applies it, and a screen opened with
+	// &lead takes the lead when it moves. Followers hide the cards unless given &ui.
+	const ROOM = Q.get('sync') || '';
+	const SYNC = /^[A-Za-z0-9_-]{12,64}$/.test(ROOM) ? `/earthdna/sync/${ROOM}` : '';
+	const ID = (WALL ? `s${WALL.i}-` : '') + Math.random().toString(36).slice(2, 8);
+	let leading = !SYNC || Q.has('lead'), epoch = 0, lastSync = null, syncBound = '', syncIndexed = '', syncVw = '', syncOv = null;
+	const r6 = (v) => Math.round(v * 1e6) / 1e6;
+	const post = (what, body) => fetch(`${SYNC}/${what}`, { method: 'POST', body, headers: { 'content-type': 'application/json' } });
+	const filterDesc = (f) => (f ? (f.contains ? { n: f.name, k: 1 } : { r: f.rank, c: f.code }) : null);
+	function snapshot() {
+		return {
+			e: epoch, from: ID, rot: rot.map(r6), zoom: r6(zoom), view: dome ? 'dome' : flat ? 'flat' : 'globe', alt: r6(domeAlt),
+			cur: current, prev: morph ? prevLayout || current : current, mt: morph ? r6(morph.t) : 1,
+			flags: flagMode, trait, traitNeg, labelKey, vw: lastView ? { l: lastView.level, f: filterDesc(lastView.filter) } : null,
+			labelsOn, sizeStep, spin, asv: asvOn, runs: asv ? runs.filter((_, k) => asv.runOn[k]).map((r) => r.id) : null,
+			ovs: overlays.filter((o) => o.on).map((o) => o.file), sov: show?.ov || null, lop: $('labels').style.opacity || ''
+		};
+	}
+	let lastSent = '', sendNext = null, sending = false;
+	function broadcast() {
+		if (!SYNC || !leading || !rankArr) return;
+		const b = JSON.stringify(snapshot()); if (b === lastSent) return;
+		lastSent = sendNext = b; if (!sending) pump();
+	}
+	async function pump() {  // one request at a time; frames drawn meanwhile are dropped, the newest goes next
+		sending = true;
+		while (sendNext && alive) { const b = sendNext; sendNext = null; try { await post('state', b); } catch { /* the relay is away: keep drawing */ } }
+		sending = false;
+	}
+	function takeLead() {
+		if (!SYNC || leading) return;
+		leading = true; epoch++; syncBound = syncIndexed = syncVw = ''; syncOv = null;
+		if (morph && !morph.t0) { const L = layouts[current]; morph = null; bindLayouts(L, L); buildIndex(L); if (asv) bindAsvLayout(current); }  // a follower's morph has no clock
+		$('spin').setAttribute('aria-pressed', spin ? 'true' : 'false');
+		$('labelsBtn').setAttribute('aria-pressed', labelsOn ? 'true' : 'false');
+		lastSent = ''; dirty = true;
+	}
+	function stepDown() { leading = false; dragging = false; pointers.clear(); }
+	for (const ev of ['pointerdown', 'wheel', 'keydown']) on(window, ev, takeLead, { capture: true, passive: true });
+	// the picker asks view() too; on a following screen the leader's choice stands
+	const pageView = (level, filter) => (SYNC && !leading ? lastRanked : view(level, filter));
+	let syncBusy = false, syncNext = null;
+	async function applySync(S) {  // newest wins; a state that needs data still loading waits for it
+		syncNext = S; if (syncBusy) return; syncBusy = true;
+		try { while (syncNext && alive) { const st = syncNext; syncNext = null; if (!leading) await applyState(st); } }
+		catch (e) { console.warn('sync:', e); }
+		finally { syncBusy = false; }
+	}
+	async function applyState(s) {
+		if (!rankArr) return;  // load() applies lastSync once the taxonomy is in
+		for (const L of new Set([s.cur, s.prev])) if (!(await ensureLayout(L))) return;
+		if (s.labelKey !== labelKey) { if (!(await setLabels(s.labelKey))) return; syncVw = ''; }
+		if (s.flags !== flagMode) await setColour(s.flags);
+		let filter = null;
+		const f = s.vw?.f;
+		if (f?.k) { const hit = containsLookup(f.n); if (hit) { try { filter = { rank: -1, code: -1, name: hit.name, contains: await containsMembers(hit) }; } catch { /* shown unfiltered */ } } }
+		else if (f) filter = { rank: f.r, code: f.c };
+		if (s.asv !== asvOn && runs.length) await toggleAsv();
+		for (const o of overlays) if (o.btn && o.on !== s.ovs.includes(o.file)) await toggleOverlay(o, o.btn);
+		if (!alive || leading) return;
+		rot = s.rot.slice(); zoom = s.zoom; domeAlt = s.alt;
+		if (dome !== (s.view === 'dome') || flat !== (s.view === 'flat')) {
+			dome = s.view === 'dome'; flat = s.view === 'flat';
+			for (const [id, m] of [['vGlobe', 'globe'], ['vFlat', 'flat'], ['vDome', 'dome']]) $(id).setAttribute('aria-pressed', m === s.view ? 'true' : 'false');
+		}
+		const bound = `${s.prev}>${s.cur}`;
+		if (syncBound !== bound) { bindLayouts(layouts[s.prev], layouts[s.cur]); syncBound = bound; }
+		const dash = s.cur.indexOf('-');
+		prevLayout = s.prev; current = s.cur; shape = dash < 0 ? s.cur : s.cur.slice(0, dash); model = dash < 0 ? '' : s.cur.slice(dash + 1);
+		morph = s.mt < 1 ? { t: s.mt } : null;
+		if (!morph && syncIndexed !== s.cur) { buildIndex(layouts[s.cur]); if (asv) bindAsvLayout(s.cur); syncIndexed = s.cur; }
+		const vw = JSON.stringify([s.vw, s.trait, s.traitNeg]);
+		if (vw !== syncVw) { trait = s.trait; traitNeg = s.traitNeg; syncVw = vw; if (s.vw) view(s.vw.l, filter); }
+		if (asv && s.runs) {
+			let changed = false;
+			runs.forEach((r, k) => { const v = s.runs.includes(r.id) ? 1 : 0; if (asv.runOn[k] !== v) { asv.runOn[k] = v; changed = true; } });
+			if (changed) syncAsvOn();
+		}
+		labelsOn = s.labelsOn; sizeStep = s.sizeStep; spin = s.spin; syncOv = s.sov; $('labels').style.opacity = s.lop;
+		dirty = true;
+	}
+	// ---------- 3D mouse (SpaceNavigator): six axes, each about -1..1 at full push. Tilting and sliding turn the globe
+	// (about its pole and toward one, like a drag), twisting turns it about the pole too (rolls the dome and map), pushing
+	// down zooms in.
+	const nav = { a: [0, 0, 0, 0, 0, 0], at: 0 }, NAVK = +(Q.get('navspeed') || 1);
+	const navActive = () => nav.a.some((v) => v !== 0) && performance.now() - nav.at < 1000;  // a lost release ends after 1 s
+	function applyNav(dt) {
+		const dz = (v) => (Math.abs(v) < 0.06 ? 0 : v), [x, y, z, rx, ry, rz] = nav.a.map(dz);
+		const k = 1.4 * dt * NAVK / Math.sqrt(zoom);
+		stopSpin();
+		if (flat || dome) rot = mul(rotZ(-rz * k), mul(rotY((x + ry) * k), mul(rotX((rx - y) * k), rot)));
+		else earthDrag((x + ry - rz) * k, (rx - y) * k);
+		setZoom(zoom * Math.exp(z * 1.6 * dt * NAVK));
+		dirty = true;
+	}
+	if (SYNC) {
+		// nobody sees a wall screen's console: its errors go to the server's log
+		const report = (m) => post('log', JSON.stringify({ screen: WALL ? WALL.i : null, ua: (navigator.userAgent.match(/Firefox\/[\d.]+|Chrome\/[\d.]+/) || [''])[0], m: String(m).slice(0, 1500) })).catch(() => {});
+		on(window, 'error', (e) => report(`${e.message} at ${e.lineno}:${e.colno}`));
+		on(window, 'unhandledrejection', (e) => report(`unhandled: ${e.reason?.stack || e.reason?.message || e.reason}`));
+		const es = new EventSource(`${SYNC}/events`);
+		cleanups.push(() => es.close());
+		es.onmessage = (m) => {
+			const st = JSON.parse(m.data);
+			if (st.from === ID || st.e < epoch) return;
+			if (st.e > epoch || st.from > ID) { epoch = st.e; if (leading) stepDown(); }
+			if (leading) return;
+			lastSync = st; applySync(st);
+		};
+		es.addEventListener('nav', (m) => {
+			const d = JSON.parse(m.data);
+			if (Q.has('lead') && d.a.some((v) => Math.abs(v) > 0.06)) takeLead();
+			nav.a = d.a; nav.at = performance.now();
+		});
+	}
 
 	// ---------- load
 	async function load() {
@@ -1712,12 +1859,15 @@ void main() {
 			if (meta.defaultLabels && (await setLabels(meta.defaultLabels))) lEl.value = labelKey;
 		}
 		loadOverlays();
+		if (lastSync) applySync(lastSync);
 		// a show that does not load leaves the globe as it is, with its panels back
 		if (show) initShow().catch((e) => { if (!alive) return; show = null; root.classList.remove('clean'); $('labels').style.opacity = ''; $('status').textContent = `The show did not load (${e.message}).`; });
 	}
 	resize(); centreOn(0, 0.12);
 	if (Q.has('dome')) setView('dome');
-	if (Q.get('ui') === '0' || show) root.classList.add('clean');
+	if (Q.get('ui') === '0' || show || (SYNC && !Q.has('lead') && !Q.has('ui'))) root.classList.add('clean');
+	// a wall screen: the globe fills the window, over the site's navigation
+	if (WALL) { root.classList.add('wall'); document.documentElement.classList.add('earthdna-wall'); cleanups.push(() => document.documentElement.classList.remove('earthdna-wall')); }
 	raf = requestAnimationFrame(frame);
 	load().catch((e) => { if (alive) $('loading').textContent = `The ${unitOne} data did not load (${e.message}). Reload the page to try again.`; });
 
@@ -1727,5 +1877,5 @@ void main() {
 		for (const f of cleanups) f();
 		gl.getExtension('WEBGL_lose_context')?.loseContext();
 	};
-	return { destroy, view };
+	return { destroy, view: pageView };
 }

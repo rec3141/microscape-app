@@ -117,6 +117,11 @@
 .earthdna.clean .leftcol, .earthdna.clean #runcard, .earthdna.clean #hint, .earthdna.clean #tip, .earthdna.clean #canvasBtns { display: none; }
 .earthdna.clean .stage { left: 0; }
 .earthdna.clean canvas#gl { cursor: none; }
+/* a wall screen (globe.js ?wall): the globe fills the window, over the site's navigation and footer; the cards
+   (lead screen only) float over the globe */
+html.earthdna-wall { overflow: hidden; }
+.earthdna.wall { position: fixed; inset: 0; z-index: 100; height: auto; min-height: 0; border: 0; border-radius: 0; }
+.earthdna.wall .stage { left: 0; }
 /* Phones: the globe takes the top of the panel and the cards stack below it instead of floating over it. */
 @media (max-width: 640px) {
 	.earthdna { height: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
