@@ -1609,7 +1609,10 @@ void main() {
 
 	// ---------- sync across screens (?sync=ROOM through /earthdna/sync/ROOM, src/routes/earthdna/sync): one screen leads
 	// and sends its state each time it draws; the others draw what they are sent. Touching a screen (pointer, wheel,
-	// keys) makes it the leader, so the controls work from whichever screen the pointer is on. The 3D mouse arrives
+	// keys) makes it the leader, so the controls work from whichever screen the pointer is on. The state names the
+	// leader's globe (its page path): a screen on another globe loads that one, keeping its own settings, except a
+	// screen opened with &lead, which takes the lead for its own globe (the room still holds the last globe's state
+	// when the lead screen has just switched). The 3D mouse arrives
 	// through the same room (earthdna viewer/lg_server.py --relay); the leader applies it, and a screen opened with
 	// &lead takes the lead when it moves. Followers hide the cards unless given &ui.
 	const ROOM = Q.get('sync') || '';
@@ -1621,7 +1624,7 @@ void main() {
 	const filterDesc = (f) => (f ? (f.contains ? { n: f.name, k: 1 } : { r: f.rank, c: f.code }) : null);
 	function snapshot() {
 		return {
-			e: epoch, from: ID, rot: rot.map(r6), zoom: r6(zoom), view: dome ? 'dome' : flat ? 'flat' : 'globe', alt: r6(domeAlt),
+			e: epoch, from: ID, path: location.pathname, rot: rot.map(r6), zoom: r6(zoom), view: dome ? 'dome' : flat ? 'flat' : 'globe', alt: r6(domeAlt),
 			cur: current, prev: morph ? prevLayout || current : current, mt: morph ? r6(morph.t) : 1,
 			flags: flagMode, trait, traitNeg, labelKey, vw: lastView ? { l: lastView.level, f: filterDesc(lastView.filter) } : null,
 			labelsOn, sizeStep, spin, asv: asvOn, runs: asv ? runs.filter((_, k) => asv.runOn[k]).map((r) => r.id) : null,
@@ -1654,7 +1657,7 @@ void main() {
 	let syncBusy = false, syncNext = null;
 	async function applySync(S) {  // newest wins; a state that needs data still loading waits for it
 		syncNext = S; if (syncBusy) return; syncBusy = true;
-		try { while (syncNext && alive) { const st = syncNext; syncNext = null; if (!leading) await applyState(st); } }
+		try { while (syncNext && alive) { const st = syncNext; syncNext = null; if (!leading && st.path === location.pathname) await applyState(st); } }
 		catch (e) { console.warn('sync:', e); }
 		finally { syncBusy = false; }
 	}
@@ -1714,7 +1717,13 @@ void main() {
 		cleanups.push(() => es.close());
 		es.onmessage = (m) => {
 			const st = JSON.parse(m.data);
-			if (st.from === ID || st.e < epoch) return;
+			if (st.from === ID) return;
+			if (st.path && st.path !== location.pathname) {
+				if (Q.has('lead')) { if (st.e >= epoch) { epoch = st.e + 1; leading = true; lastSent = ''; dirty = true; } return; }
+				if (st.e >= epoch) { es.close(); location.assign(st.path + location.search); }
+				return;
+			}
+			if (st.e < epoch) return;
 			if (st.e > epoch || st.from > ID) { epoch = st.e; if (leading) stepDown(); }
 			if (leading) return;
 			lastSync = st; applySync(st);
