@@ -41,6 +41,15 @@
 		query = '';
 	}
 
+	// a crumb names its taxon; a "contains" search says so
+	const crumb = (t: Taxon) => (t.rank < 0 ? `${t.name} present` : t.name);
+	// with "contains" data and taxonomy shown, + on a row searches for that taxon: every point carrying it
+	let anyOf = $derived(!!taxa.searchNames && taxa.noun !== 'category');
+	async function searchFor(name: string) {
+		await navigateToTaxon(name);
+		query = name;
+	}
+
 	async function navigateToTaxon(name: string) {
 		const lineage = await taxa.find(name);
 		if (lineage) show(lineage);
@@ -58,16 +67,16 @@
 		onPick={navigateToTaxon}
 	/>
 
-	{#if !stack.length}
-		<label class="rankpick">
-			<span>Colour by</span>
-			<select bind:value={base}>
-				{#each taxa.levels as l, i}
-					<option value={i}>{cap(l)}</option>
-				{/each}
-			</select>
-		</label>
-	{/if}
+	<!-- with a taxon picked the menu reads Selected; choosing a level there clears the pick -->
+	<label class="rankpick">
+		<span>Colour by</span>
+		<select value={stack.length ? -1 : base} onchange={(e) => { base = +e.currentTarget.value; stack = []; query = ""; }}>
+			{#if stack.length}<option value={-1}>Selected</option>{/if}
+			{#each taxa.levels as l, i}
+				<option value={i}>{taxa.predominant ? `Predominant ${l}` : cap(l)}</option>
+			{/each}
+		</select>
+	</label>
 
 	<div class="head">
 		<span>{cap(taxa.levels[level])} ({ranked.length.toLocaleString()})</span>
@@ -75,11 +84,17 @@
 	</div>
 	<ul class="rows">
 		{#if stack.length}
-			{@const prev = stack.length > 1 ? stack[stack.length - 2] : null}
-			<li>
-				<button class="up" onclick={() => (stack = stack.slice(0, -1))}>
-					&#x25B4; Up to {prev ? prev.name : cap(taxa.levels[base])}
-				</button>
+			<!-- the whole path: each step above the current one goes back to it -->
+			<li class="crumbs">
+				<button class="up" onclick={() => (stack = [])}>All</button>
+				{#each stack as t, k}
+					<span class="sep">&rsaquo;</span>
+					{#if k < stack.length - 1}
+						<button class="up" onclick={() => (stack = stack.slice(0, k + 1))}>{crumb(t)}</button>
+					{:else}
+						<span class="here">{crumb(t)}</span>
+					{/if}
+				{/each}
 			</li>
 		{/if}
 		{#each ranked.slice(0, shown) as item (item.code)}
@@ -94,6 +109,9 @@
 					<span class="n">{item.count.toLocaleString()}</span>
 					{#if asvsShown}<span class="n">{(item.asvs ?? 0).toLocaleString()}</span>{/if}
 				</button>
+				{#if anyOf && item.code !== NONE}
+					<button class="any" title="Every {taxa.noun === 'category' ? 'point' : 'sample'} containing {item.name}" aria-label="Every sample containing {item.name}" onclick={() => searchFor(item.name)}>+</button>
+				{/if}
 			</li>
 		{/each}
 		{#if ranked.length > shown}
@@ -116,8 +134,15 @@
 	.cols span { width: 4rem; text-align: right; }
 	.rows { list-style: none; margin: 0; padding: 0; display: grid; align-content: start; gap: 1px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 	.up { width: 100%; text-align: left; font: inherit; font-size: 0.78rem; color: #38bdf8; background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 4px 6px; margin-bottom: 2px; cursor: pointer; }
+	.crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; border-bottom: 1px solid var(--line); padding: 2px 0 4px; margin-bottom: 2px; font-size: 0.78rem; }
+	.crumbs .up { width: auto; border: 0; padding: 1px 3px; margin: 0; border-radius: 4px; }
+	.crumbs .sep { color: var(--muted); }
+	.crumbs .here { color: var(--ink); padding: 1px 3px; }
+	.rows li { display: flex; align-items: start; }
+	.any { flex: none; font: inherit; font-size: 0.8rem; line-height: 1; color: #38bdf8; background: transparent; border: 0; border-radius: 4px; padding: 4px 5px; cursor: pointer; }
+	.any:hover { background: rgba(255, 255, 255, 0.08); }
 	.up:hover, .taxon:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); }
-	.taxon { width: 100%; display: grid; grid-template-columns: 9px minmax(0, 1fr) auto auto; align-items: start; gap: 8px; text-align: left; font: inherit; font-size: 0.8rem; color: var(--ink); background: transparent; border: 0; border-radius: 5px; padding: 3px 6px; cursor: pointer; }
+	.taxon { width: 100%; min-width: 0; display: grid; grid-template-columns: 9px minmax(0, 1fr) auto auto; align-items: start; gap: 8px; text-align: left; font: inherit; font-size: 0.8rem; color: var(--ink); background: transparent; border: 0; border-radius: 5px; padding: 3px 6px; cursor: pointer; }
 	.taxon:disabled { cursor: default; }
 	.sw { width: 9px; height: 9px; border-radius: 50%; margin-top: 0.32em; }
 	/* min-width: 0 lets a long name wrap rather than shove the counts off the row */
