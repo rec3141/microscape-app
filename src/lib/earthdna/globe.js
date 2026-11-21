@@ -1260,7 +1260,7 @@ void main() {
 		buildLabels();
 		const start = key ? Math.min(2, curLevels.length - 1) : Math.max(0, curLevels.indexOf('class'));
 		view(start, null);
-		onTaxa({ levels: curLevels, names: rankNames, find: findAny, count, describe, start, noun: key ? 'category' : 'taxon', title: key ? meta.labelSets.find((x) => x.key === key).name : 'Taxa', searchNames: searchNames() });
+		onTaxa({ levels: curLevels, names: rankNames, find: findAny, count, describe, start, noun: key ? 'category' : 'taxon', title: key ? meta.labelSets.find((x) => x.key === key).name : 'Taxa', searchNames: searchNames(), predominant: !!meta.contains && !key });
 		return true;
 	}
 	on(window, 'keydown', (e) => { if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement)) onClear(); });
@@ -1863,7 +1863,7 @@ void main() {
 		$('loading').hidden = true; dirty = true;
 		// amplicon runs load and show only when asked (Show amplicon runs)
 		namesIndex();
-		onTaxa({ levels: R.levels, names: rankNames, find: findAny, count, describe, searchNames: searchNames() });
+		onTaxa({ levels: R.levels, names: rankNames, find: findAny, count, describe, searchNames: searchNames(), predominant: !!meta.contains });
 		// Labels: the taxonomy, or a label set the globe carries (e.g. each point's environment)
 		if (meta.labelSets?.length) {
 			const lEl = $('labelSet');
