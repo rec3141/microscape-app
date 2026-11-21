@@ -107,6 +107,7 @@
 .earthdna #labels .L1 { font-size: 0.85rem; font-weight: 500; letter-spacing: 0.06em; }
 .earthdna #labels .L2 { font-size: 0.74rem; color: #c3cfdc; }
 .earthdna #labels .L3 { font-family: var(--f-taxon); font-style: italic; font-size: 0.82rem; color: #d8e2ec; }
+.earthdna #labels .Lg { font-size: 0.72rem; color: #c9d4df; text-shadow: 0 0 3px #06101c; }
 .earthdna #labels .L4 { font-family: var(--f-taxon); font-style: italic; font-size: 0.74rem; color: #b9c7d6; }
 .earthdna #loading { position: absolute; inset: 0; display: grid; place-items: center; z-index: 4; color: var(--muted); font-size: 0.9rem; pointer-events: none; }
 .earthdna #loading[hidden] { display: none; }

@@ -176,7 +176,7 @@ export const DATASETS: Dataset[] = [
 		slug: 'motus-samples-map',
 		name: 'mOTU-Samples',
 		base: '/earthdna/motus41-samples-map',
-		version: 'motus41-samples-map-3-maponly',
+		version: 'motus41-samples-map-4-places',
 		release: null,
 		count: 83343,
 		unit: ['metagenome', 'metagenomes'],
