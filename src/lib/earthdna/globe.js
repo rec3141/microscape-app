@@ -813,7 +813,9 @@ void main() {
 		proj(ptProg);
 		const ov = show?.ov || syncOv, dpr = canvas.width / Math.max(1, canvas.clientWidth), alpha = ov ? ov.alpha : 1;
 		// dome: sized as a fraction of the disc (so any frame resolution looks the same); nearness enlarges points in the shader
-		const size = (ov ? ov.size : pointSize()) * (dome ? wallMin(canvas.width, canvas.height) / 900 : dpr * Math.pow(zoom, 0.45));
+		// a point narrower than a pixel is drawn a pixel wide, so on an ordinary-resolution screen (a wall) a small base
+		// size would make Size's steps look alike: each step is at least its own factor in device pixels
+		const size = Math.max(SIZE_STEPS[sizeStep][1], (ov ? ov.size : pointSize()) * (dome ? wallMin(canvas.width, canvas.height) / 900 : dpr * Math.pow(zoom, 0.45)));
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uSize'), size);
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uAlpha'), alpha * (asvShown() ? 0.28 : ovShown() ? 0.35 : 1));
 		gl.uniform1f(gl.getUniformLocation(ptProg, 'uHasSel'), hasSel ? 1 : 0);
