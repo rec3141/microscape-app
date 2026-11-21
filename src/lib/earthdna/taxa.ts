@@ -61,7 +61,8 @@ export interface Taxon {
 	rank: number;
 	code: number;
 	name: string;
-	contains?: string; // a "contains" search: every point carrying this taxon (rank and code are -1)
+	contains?: string; // a "contains" search: every point carrying this taxon (rank and code are -1, or the taxon picked among those points)
+	within?: string; // with a picked taxon inside a "contains" search: the taxon searched for
 }
 
 export interface RankedTaxon {
