@@ -1012,6 +1012,13 @@ void main() {
 				second = `${lv.charAt(0).toUpperCase()}${lv.slice(1)} · ${c !== NONE && rankNames[r][c] != null ? rankNames[r][c] : 'unclassified'}`;
 			}
 			tip.children[1].textContent = second;
+			// with a taxon picked: its share of this point first, the predominant species after
+			if (picked.length) {
+				tip.children[0].textContent = picked.map((p) => `${fmtShare(p.a[i])} ${p.name}`).join(' · ');
+				const d = document.createElement('div'); d.className = 'm';
+				d.textContent = `Predominant: ${pc}${sp || (g ? g + ' sp.' : 'unclassified')}`;
+				tip.insertBefore(d, tip.children[1]);
+			}
 			if (flagMode && flags && flags[i] > 0) {
 				const d = document.createElement('div'); d.className = 'w';
 				d.textContent = `Labelled ${gr.split(' · ')[1] || gr}, but its neighbours are ${(meta.groups[majg[i]] || 'other').replace(' · ', ' › ')}`;
@@ -1107,6 +1114,47 @@ void main() {
 		memberCache.set(key, m);
 		return key;
 	}
+	// a picked taxon's share of each point (abund_<rank>.bin, one byte per member of contains_<rank>.bin in the same
+	// order: 1 + round(80 log10(share / min)); 0 here = below contains.min), for the tooltip
+	const abundFiles = new Map(), abundCache = new Map();
+	async function abundOf(rank, name) {
+		const t = meta.contains?.abund ? (meta.contains.names[rank] ?? []).indexOf(name) : -1;
+		if (t < 0) return null;
+		const key = `${rank}\t${name}`;
+		if (abundCache.has(key)) return abundCache.get(key);
+		await containsMembers({ rank, t, name });
+		let f = abundFiles.get(rank);
+		if (!f) {
+			const b = await fetchBin(`abund_${rank}.bin`);
+			const n = new DataView(b.buffer, b.byteOffset).getUint32(0, true);
+			f = { offs: new Uint32Array(b.buffer.slice(b.byteOffset + 4, b.byteOffset + 8 + 4 * n)), data: b.subarray(8 + 4 * n) };
+			abundFiles.set(rank, f);
+		}
+		const m = memberCache.get(key), out = new Uint8Array(N);
+		for (let i = 0, k = f.offs[t]; i < N; i++) if (m[i]) out[i] = f.data[k++];
+		abundCache.set(key, out);
+		return out;
+	}
+	const fmtShare = (b) => {
+		const lo = 100 * meta.contains.min;
+		if (!b) return `<${lo}%`;
+		const p = lo * 10 ** ((b - 1) / 80);
+		return `${p >= 10 ? p.toFixed(0) : p >= 1 ? p.toFixed(1) : p.toFixed(2)}%`;
+	};
+	// the taxa picked in the picker that have shares: a searched taxon, a taxon picked in the taxonomy, or both
+	let picked = [], pickedFor = null, markFor = null;
+	async function loadPicked(filter, mark) {
+		pickedFor = filter; markFor = mark; picked = [];
+		if ((!filter && !mark) || !meta.contains?.abund) return;
+		const want = [];
+		if (mark) { const h = containsLookup(mark.name); if (h) want.push([h.rank, h.name]); }
+		if (!filter) filter = { rank: -2 };
+		if (filter.rank === -1 || filter.within) { const h = containsLookup(filter.within ?? filter.name); if (h) want.push([h.rank, h.name]); }
+		if (filter.rank >= 0 && !labelKey) want.push([curLevels[filter.rank], rankNames[filter.rank][filter.code]]);
+		const got = [];
+		for (const [rk, nm] of want) { try { const a = await abundOf(rk, nm); if (a) got.push({ name: nm, a }); } catch { /* no shares for it */ } }
+		if (pickedFor === filter && markFor === mark) picked = got.filter((p, k) => got.findIndex((q) => q.name === p.name) === k);
+	}
 	// what the search box finds: with the taxonomy shown, a taxon matches every point that contains it; with a label
 	// set (e.g. environment), its own names first, then taxa by what points contain
 	async function findAny(name) {
@@ -1126,34 +1174,43 @@ void main() {
 	let curLevel = 2;  // the rank the globe is coloured by (view() sets it); the tooltip names the point's taxon there
 	let lastView = null, lastRanked = [];  // view()'s last arguments and answer, for the other screens of a wall
 	let baseLevel = 2, pickedLevel = -1;  // the Colour by rank (the level shown with nothing picked); a click picks at it
-	function view(level, filter) {
+	// mark: a "contains" search shown on the globe without moving the picker (its + on a row); the list keeps counting
+	// the filter's points, the highlight is every point carrying the marked taxon
+	function view(level, filter, mark = null) {
 		if (!rankArr) return [];
-		lastView = { level, filter };
+		lastView = { level, filter, mark };
+		if (filter !== pickedFor || mark !== markFor) loadPicked(filter, mark);
 		curLevel = level;
 		if (!filter) { baseLevel = level; pickedLevel = -1; }
 		const cm = filter?.contains ? memberCache.get(filter.contains) : null;  // a "contains" search (findAny), or a taxon picked inside one
+		const mk = mark?.contains ? memberCache.get(mark.contains) : null;
 		const counts = new Map();
-		let members = 0;
+		let members = 0, marked = 0;
 		for (let i = 0; i < N; i++) {
-			const inside = (!filter || ((!cm || cm[i] === 1) && (filter.rank < 0 || rankCode(filter.rank, i) === filter.code))) && (trait < 0 || (((traits[T(i)] >> trait) & 1) === 1) !== traitNeg);
-			sel[i] = inside ? 1 : 0;
+			const traitOk = trait < 0 || (((traits[T(i)] >> trait) & 1) === 1) !== traitNeg;
+			const inside = (!filter || ((!cm || cm[i] === 1) && (filter.rank < 0 || rankCode(filter.rank, i) === filter.code))) && traitOk;
+			const lit = mk ? mk[i] === 1 && traitOk : inside;
+			sel[i] = lit ? 1 : 0;
+			if (lit) marked++;
 			if (!inside) continue;
 			members++;
 			const c = rankCode(level, i);
 			counts.set(c, (counts.get(c) || 0) + 1);
 		}
-		hasSel = (!!filter || trait >= 0) && members < N;
+		hasSel = (!!filter || !!mk || trait >= 0) && marked < N;
 		const ranked = [...counts].sort((a, b) => (a[0] === NONE) - (b[0] === NONE) || b[1] - a[1])
 			.map(([code, count]) => ({ code, count, name: code === NONE ? 'unclassified' : rankNames[level][code] }));
 		// every listed taxon gets its own slot and colour; unclassified is the bright one
-		const palette = generatePalette(ranked.length), slot = new Map(), cols = new Float32Array(3 * Math.max(1, ranked.length));
+		const palette = generatePalette(ranked.length), slot = new Map(), cols = new Float32Array(3 * (ranked.length + 1));
 		ranked.forEach((t, k) => {
 			const c = t.code === NONE ? BRIGHT : palette[k];
 			t.color = css(c);
 			slot.set(t.code, k); cols.set(c, 3 * k);
 		});
+		// the slot after the list: points outside the filter, dimmed, and marked points the list does not count, light grey
+		const outside = ranked.length;
+		cols.set([0.8, 0.8, 0.78], 3 * outside);
 		setColours(cols);
-		const outside = ranked.length;  // points outside the filter are dimmed; any colour will do
 		for (let i = 0; i < N; i++) { const k = slot.get(rankCode(level, i)); cidx[i] = k === undefined ? outside : k; }
 		gl.bindBuffer(gl.ARRAY_BUFFER, cidxBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, cidx);
 		gl.bindBuffer(gl.ARRAY_BUFFER, selBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, sel);
@@ -1170,7 +1227,9 @@ void main() {
 			syncAsvOn();
 		}
 		const what = !filter ? '' : filter.rank < 0 ? `${filter.name} present` : rankNames[filter.rank][filter.code] + (filter.within ? ` with ${filter.within} present` : '');
-		if (!flagMode) $('status').textContent = what ? `${what} · ${members.toLocaleString()} ${unit}` : IDLE;  // disagreements keep their summary
+		const said = mk ? `${mark.name} present · ${marked.toLocaleString()} ${unit}` + (what ? ` (list: ${what} · ${members.toLocaleString()})` : '')
+			: what ? `${what} · ${members.toLocaleString()} ${unit}` : '';
+		if (!flagMode) $('status').textContent = said || IDLE;  // disagreements keep their summary
 		dirty = true;
 		lastRanked = ranked;
 		return ranked;
@@ -1197,7 +1256,7 @@ void main() {
 		if (!out.length || !navigator.clipboard) return;
 		const text = out.map((x) => x.join('\t')).join('\n');
 		navigator.clipboard.writeText(text).then(
-			() => { if (alive) $('status').textContent = `Copied ${out[0][1]} to the clipboard.`; },
+			() => { if (alive) $('status').textContent = `Copied ${S ? 'sample record' : 'taxonomy string'} to the clipboard.`; },
 			() => {}
 		);
 	}
@@ -1221,6 +1280,7 @@ void main() {
 		if (parts.length) line('', parts.join(' · '));
 		const di = cols.indexOf('Dominant');
 		if (di > 0 && v[di]) line('', `Dominant: ${v[di]}`);
+		for (const p of picked) line('', `${p.name}: ${fmtShare(p.a[i])}`);
 		const path = [];
 		for (let r = 1; r < curLevels.length; r++) { const c = setArr[r][i]; const nm = c !== NONE ? rankNames[r][c] : null; if (nm && nm !== path[path.length - 1]) path.push(nm); }
 		if (path.length) line('m', (S.tip ? S.tip + ' ' : '') + path.join(' › '));
@@ -1260,7 +1320,7 @@ void main() {
 		buildLabels();
 		const start = key ? Math.min(2, curLevels.length - 1) : Math.max(0, curLevels.indexOf('class'));
 		view(start, null);
-		onTaxa({ levels: curLevels, names: rankNames, find: findAny, count, describe, start, noun: key ? 'category' : 'taxon', title: key ? meta.labelSets.find((x) => x.key === key).name : 'Taxa', searchNames: searchNames(), predominant: !!meta.contains && !key });
+		onTaxa({ levels: curLevels, names: rankNames, find: findAny, count, describe, start, noun: key ? 'category' : 'taxon', title: key ? meta.labelSets.find((x) => x.key === key).name : 'Taxa', searchNames: searchNames(), predominant: !!meta.contains && !key, lineage: key ? undefined : find });
 		return true;
 	}
 	on(window, 'keydown', (e) => { if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement)) onClear(); });
@@ -1628,7 +1688,7 @@ void main() {
 		return {
 			e: epoch, from: ID, path: location.pathname, rot: rot.map(r6), zoom: r6(zoom), view: dome ? 'dome' : flat ? 'flat' : 'globe', alt: r6(domeAlt),
 			cur: current, prev: morph ? prevLayout || current : current, mt: morph ? r6(morph.t) : 1,
-			flags: flagMode, trait, traitNeg, labelKey, vw: lastView ? { l: lastView.level, f: filterDesc(lastView.filter) } : null,
+			flags: flagMode, trait, traitNeg, labelKey, vw: lastView ? { l: lastView.level, f: filterDesc(lastView.filter), m: lastView.mark?.name ?? null } : null,
 			labelsOn, sizeStep, spin, asv: asvOn, runs: asv ? runs.filter((_, k) => asv.runOn[k]).map((r) => r.id) : null,
 			ovs: overlays.filter((o) => o.on).map((o) => o.file), sov: show?.ov || null, lop: $('labels').style.opacity || ''
 		};
@@ -1655,7 +1715,7 @@ void main() {
 	function stepDown() { leading = false; dragging = false; pointers.clear(); }
 	for (const ev of ['pointerdown', 'wheel', 'keydown']) on(window, ev, takeLead, { capture: true, passive: true });
 	// the picker asks view() too; on a following screen the leader's choice stands
-	const pageView = (level, filter) => (SYNC && !leading ? lastRanked : view(level, filter));
+	const pageView = (level, filter, mark = null) => (SYNC && !leading ? lastRanked : view(level, filter, mark));
 	let syncBusy = false, syncNext = null;
 	async function applySync(S) {  // newest wins; a state that needs data still loading waits for it
 		syncNext = S; if (syncBusy) return; syncBusy = true;
@@ -1675,6 +1735,8 @@ void main() {
 			if (hit) { try { filter = { rank: r, code: r < 0 ? -1 : f.c, name: r < 0 ? hit.name : rankNames[r][f.c], contains: await containsMembers(hit), within: r < 0 ? undefined : hit.name }; } catch { /* shown unfiltered */ } }
 		}
 		else if (f) filter = { rank: f.r, code: f.c };
+		let mark = null;
+		if (s.vw?.m) { const hit = containsLookup(s.vw.m); if (hit) { try { mark = { rank: -1, code: -1, name: hit.name, contains: await containsMembers(hit) }; } catch { /* shown unmarked */ } } }
 		if (s.asv !== asvOn && runs.length) await toggleAsv();
 		for (const o of overlays) if (o.btn && o.on !== s.ovs.includes(o.file)) await toggleOverlay(o, o.btn);
 		if (!alive || leading) return;
@@ -1690,7 +1752,7 @@ void main() {
 		morph = s.mt < 1 ? { t: s.mt } : null;
 		if (!morph && syncIndexed !== s.cur) { buildIndex(layouts[s.cur]); if (asv) bindAsvLayout(s.cur); syncIndexed = s.cur; }
 		const vw = JSON.stringify([s.vw, s.trait, s.traitNeg]);
-		if (vw !== syncVw) { trait = s.trait; traitNeg = s.traitNeg; syncVw = vw; if (s.vw) view(s.vw.l, filter); }
+		if (vw !== syncVw) { trait = s.trait; traitNeg = s.traitNeg; syncVw = vw; if (s.vw) view(s.vw.l, filter, mark); }
 		if (asv && s.runs) {
 			let changed = false;
 			runs.forEach((r, k) => { const v = s.runs.includes(r.id) ? 1 : 0; if (asv.runOn[k] !== v) { asv.runOn[k] = v; changed = true; } });
@@ -1863,7 +1925,7 @@ void main() {
 		$('loading').hidden = true; dirty = true;
 		// amplicon runs load and show only when asked (Show amplicon runs)
 		namesIndex();
-		onTaxa({ levels: R.levels, names: rankNames, find: findAny, count, describe, searchNames: searchNames(), predominant: !!meta.contains });
+		onTaxa({ levels: R.levels, names: rankNames, find: findAny, count, describe, searchNames: searchNames(), predominant: !!meta.contains, lineage: find });
 		// Labels: the taxonomy, or a label set the globe carries (e.g. each point's environment)
 		if (meta.labelSets?.length) {
 			const lEl = $('labelSet');

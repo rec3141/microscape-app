@@ -82,6 +82,7 @@ export interface Taxa {
 	start?: number; // the level coloured when nothing is picked (default: class)
 	title?: string;
 	searchNames?: string[]; // what the search box suggests, when it can find more than the label names // the panel heading ('Taxa' by default; a label set's name)
+	lineage?: (name: string) => Taxon[] | null; // where a name sits in the labels (find may answer a "contains" search instead)
 	predominant?: boolean; // each point is labelled by its predominant taxon (a metagenome's most abundant lineage)
 	noun?: string; // what a name is, for the search box ('taxon' by default; 'category' for environment labels)
 }
