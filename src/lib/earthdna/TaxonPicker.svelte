@@ -19,8 +19,9 @@
 	let stack = $state<Taxon[]>([]);
 	let query = $state('');
 	let filter = $derived(stack.length ? stack[stack.length - 1] : null);
-	// a "contains" search lists its points at the Colour by level; a picked taxon lists the level below it
-	let level = $derived(filter ? (filter.contains ? base : Math.min(filter.rank + 1, taxa.levels.length - 1)) : base);
+	// a "contains" search lists its points at the Colour by level; a picked taxon lists the level below it, and
+	// one picked from a "contains" list keeps to the points of that search
+	let level = $derived(filter ? (filter.rank < 0 ? base : Math.min(filter.rank + 1, taxa.levels.length - 1)) : base);
 	let ranked = $state<RankedTaxon[]>([]);
 
 	// the globe colours every taxon; the list draws the first rows (a GTDB species list has 143k)
@@ -86,7 +87,7 @@
 				<button
 					class="taxon"
 					disabled={item.code === NONE || (filter !== null && level === filter.rank)}
-					onclick={() => (stack = [...stack, { rank: level, code: item.code, name: item.name }])}
+					onclick={() => (stack = [...stack, { rank: level, code: item.code, name: item.name, contains: filter?.contains, within: filter?.contains ? (filter.within ?? filter.name) : undefined }])}
 				>
 					<span class="sw" style="background:{item.color}"></span>
 					<span class="nm" class:unc={item.code === NONE}>{item.name}</span>

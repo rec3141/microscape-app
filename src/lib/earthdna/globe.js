@@ -1131,11 +1131,11 @@ void main() {
 		lastView = { level, filter };
 		curLevel = level;
 		if (!filter) { baseLevel = level; pickedLevel = -1; }
-		const cm = filter?.contains ? memberCache.get(filter.contains) : null;  // a "contains" search (findAny)
+		const cm = filter?.contains ? memberCache.get(filter.contains) : null;  // a "contains" search (findAny), or a taxon picked inside one
 		const counts = new Map();
 		let members = 0;
 		for (let i = 0; i < N; i++) {
-			const inside = (!filter || (cm ? cm[i] === 1 : rankCode(filter.rank, i) === filter.code)) && (trait < 0 || (((traits[T(i)] >> trait) & 1) === 1) !== traitNeg);
+			const inside = (!filter || ((!cm || cm[i] === 1) && (filter.rank < 0 || rankCode(filter.rank, i) === filter.code))) && (trait < 0 || (((traits[T(i)] >> trait) & 1) === 1) !== traitNeg);
 			sel[i] = inside ? 1 : 0;
 			if (!inside) continue;
 			members++;
@@ -1158,7 +1158,7 @@ void main() {
 		gl.bindBuffer(gl.ARRAY_BUFFER, cidxBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, cidx);
 		gl.bindBuffer(gl.ARRAY_BUFFER, selBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, sel);
 		// ASVs: kept when their lineage names the filter taxon; counted against each listed taxon by name
-		asvFilter = filter ? norm(filter.contains ? filter.name : rankNames[filter.rank][filter.code]) : '';
+		asvFilter = filter ? norm(filter.rank < 0 ? filter.name : rankNames[filter.rank][filter.code]) : '';
 		if (asv) {
 			const byName = new Map(ranked.map((t) => [norm(t.name), t]));
 			for (const t of ranked) t.asvs = 0;
@@ -1169,7 +1169,7 @@ void main() {
 			}
 			syncAsvOn();
 		}
-		const what = filter ? (filter.contains ? `${filter.name} present` : rankNames[filter.rank][filter.code]) : '';
+		const what = !filter ? '' : filter.rank < 0 ? `${filter.name} present` : rankNames[filter.rank][filter.code] + (filter.within ? ` with ${filter.within} present` : '');
 		if (!flagMode) $('status').textContent = what ? `${what} · ${members.toLocaleString()} ${unit}` : IDLE;  // disagreements keep their summary
 		dirty = true;
 		lastRanked = ranked;
@@ -1623,7 +1623,7 @@ void main() {
 	let leading = !SYNC || Q.has('lead'), epoch = 0, lastSync = null, syncBound = '', syncIndexed = '', syncVw = '', syncOv = null;
 	const r6 = (v) => Math.round(v * 1e6) / 1e6;
 	const post = (what, body) => fetch(`${SYNC}/${what}`, { method: 'POST', body, headers: { 'content-type': 'application/json' } });
-	const filterDesc = (f) => (f ? (f.contains ? { n: f.name, k: 1 } : { r: f.rank, c: f.code }) : null);
+	const filterDesc = (f) => (f ? (f.contains ? { n: f.within ?? f.name, k: 1, r: f.rank, c: f.code } : { r: f.rank, c: f.code }) : null);
 	function snapshot() {
 		return {
 			e: epoch, from: ID, path: location.pathname, rot: rot.map(r6), zoom: r6(zoom), view: dome ? 'dome' : flat ? 'flat' : 'globe', alt: r6(domeAlt),
@@ -1670,7 +1670,10 @@ void main() {
 		if (s.flags !== flagMode) await setColour(s.flags);
 		let filter = null;
 		const f = s.vw?.f;
-		if (f?.k) { const hit = containsLookup(f.n); if (hit) { try { filter = { rank: -1, code: -1, name: hit.name, contains: await containsMembers(hit) }; } catch { /* shown unfiltered */ } } }
+		if (f?.k) {
+			const hit = containsLookup(f.n), r = f.r ?? -1;
+			if (hit) { try { filter = { rank: r, code: r < 0 ? -1 : f.c, name: r < 0 ? hit.name : rankNames[r][f.c], contains: await containsMembers(hit), within: r < 0 ? undefined : hit.name }; } catch { /* shown unfiltered */ } }
+		}
 		else if (f) filter = { rank: f.r, code: f.c };
 		if (s.asv !== asvOn && runs.length) await toggleAsv();
 		for (const o of overlays) if (o.btn && o.on !== s.ovs.includes(o.file)) await toggleOverlay(o, o.btn);
