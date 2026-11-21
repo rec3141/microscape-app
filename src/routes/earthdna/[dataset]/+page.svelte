@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import { mountGlobe } from '$lib/earthdna/globe.js';
 	import TaxonPicker from '$lib/earthdna/TaxonPicker.svelte';
 	import type { RankedTaxon, Taxa, Taxon } from '$lib/earthdna/taxa';
@@ -25,6 +26,14 @@
 	let refreshVersion = $state(0); // the highlight changed: the picker asks view() again
 	let picker = $state<ReturnType<typeof TaxonPicker> | null>(null);
 	let view = $state<(level: number, filter: Taxon | null) => RankedTaxon[]>(() => []);
+	// a wall screen (globe.js ?wall, ?sync) stays one when it switches globe: the links to other globes keep its settings
+	const WALL_KEYS = ['sync', 'wall', 'screen', 'bezel', 'lead', 'ui', 'navspeed'];
+	const keep = $derived.by(() => {
+		const q = new URLSearchParams();
+		for (const k of WALL_KEYS) { const v = page.url.searchParams.get(k); if (v !== null) q.set(k, v); }
+		const s = q.toString();
+		return s ? `?${s}` : '';
+	});
 
 	// SILVA is the reference globe the PLACE_GLOBE placements are made against
 	// (EarthDNA SILVA 144, doi:10.5281/zenodo.23936866); other globes have no runs.
@@ -69,14 +78,14 @@
 			<h1><a href="/earthdna" class="home">EarthDNA</a></h1>
 			<nav class="globes" aria-label="Globes">
 				{#each PILLS as d (d.slug)}
-					<a href="/earthdna/{d.slug}" data-sveltekit-reload aria-current={familyOf(ds).some((x) => x.slug === d.slug) ? 'page' : undefined}>{d.name}</a>
+					<a href="/earthdna/{d.slug}{keep}" data-sveltekit-reload aria-current={familyOf(ds).some((x) => x.slug === d.slug) ? 'page' : undefined}>{d.name}</a>
 				{/each}
 			</nav>
 			{#if familyOf(ds).length > 1}
 				<!-- the family's globes; each is its own page, so picking one loads it -->
 				<div class="row">
 					<label class="rankpick highlight" for="variant">{ds.unit[1][0].toUpperCase() + ds.unit[1].slice(1)}
-						<select id="variant" value={ds.slug} onchange={(e) => { const v = e.currentTarget.value; if (v !== ds.slug && !v.startsWith('model:')) location.assign(`/earthdna/${v}`); }}>
+						<select id="variant" value={ds.slug} onchange={(e) => { const v = e.currentTarget.value; if (v !== ds.slug && !v.startsWith('model:')) location.assign(`/earthdna/${v}${keep}`); }}>
 							{#each familyOf(ds) as v (v.slug)}<option value={v.slug}>{v.variant ?? v.name}</option>{/each}
 						</select>
 					</label>
