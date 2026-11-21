@@ -1239,23 +1239,32 @@ void main() {
 		if (i < 0) { if (hasSel || pickedLevel >= 0) onClear(); return; }
 		if (rankArr) copyRecord(i);
 	}
-	// a clicked point's record to the clipboard, as "field<TAB>value" lines (pastes as two spreadsheet columns): its
-	// label set record and full label path when a set with one is on, else its taxonomy
-	function copyRecord(i) {
-		const out = [];
-		const S = labelKey && setInfo[labelKey];
+	// a clicked point's record to the clipboard, as "field<TAB>value" lines (pastes as two spreadsheet columns), the
+	// same whichever labels are on: its record (the first label set with one), each label set's path, then its taxonomy
+	// (on globes of metagenomes, the predominant lineage). Label sets not yet shown are loaded first.
+	async function copyRecord(i) {
+		for (const def of meta.labelSets ?? []) await loadSet(def, true);
+		if (!alive) return;
+		const out = [], cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+		const S = Object.values(setInfo)[0];
 		if (S) {
 			const v = S.rows[i].split('\t');
-			S.cols.forEach((c, k) => { if (v[k]) out.push([c === 'lat' ? 'Latitude' : c === 'lon' ? 'Longitude' : c, v[k]]); });
+			S.cols.forEach((c, k) => { if (v[k] && c !== 'Dominant') out.push([c === 'lat' ? 'Latitude' : c === 'lon' ? 'Longitude' : cap(c), v[k]]); });  // the share goes on the species line
 		}
-		for (let r = 0; r < curLevels.length; r++) {
-			const c = rankCode(r, i), nm = c !== NONE ? rankNames[r][c] : null;
-			if (nm != null) out.push([curLevels[r].charAt(0).toUpperCase() + curLevels[r].slice(1), nm]);
+		for (const [key, arr] of Object.entries(setCache)) {
+			const def = meta.labelSets.find((x) => x.key === key);
+			def.levels.forEach((l, r) => { const c = arr[r][i], nm = c !== NONE ? def.names[l][c] : null; if (nm != null) out.push([cap(l), nm]); });
+		}
+		const tl = meta.ranks.levels;
+		for (let r = 0; r < tl.length; r++) {
+			const c = taxCode(r, i), nm = c !== NONE ? taxNames[r][c] : null;
+			const share = r === tl.length - 1 && tipPct && tipPct[i] !== 255 ? ` (${tipPct[i]}%)` : '';
+			if (nm != null) out.push([meta.contains ? `Predominant ${tl[r]}` : cap(tl[r]), nm + share]);
 		}
 		if (!out.length || !navigator.clipboard) return;
 		const text = out.map((x) => x.join('\t')).join('\n');
 		navigator.clipboard.writeText(text).then(
-			() => { if (alive) $('status').textContent = `Copied ${S ? 'sample record' : 'taxonomy string'} to the clipboard.`; },
+			() => { if (alive) $('status').textContent = `Copied ${S ? `the ${unitOne} record` : 'the taxonomy'} to the clipboard.`; },
 			() => {}
 		);
 	}
@@ -1278,7 +1287,7 @@ void main() {
 		});
 		if (parts.length) line('', parts.join(' · '));
 		const di = cols.indexOf('Dominant');
-		if (di > 0 && v[di]) line('', `Dominant: ${v[di]}`);
+		if (di > 0 && v[di]) line('', `Predominant species: ${v[di]}`);
 		for (const p of picked) line('', `${p.name}: ${fmtShare(p.a[i])}`);
 		const path = [];
 		for (let r = 1; r < curLevels.length; r++) { const c = setArr[r][i]; const nm = c !== NONE ? rankNames[r][c] : null; if (nm && nm !== path[path.length - 1]) path.push(nm); }
@@ -1289,24 +1298,29 @@ void main() {
 			line('m', la && lo ? `${f(la, 'N', 'S')}, ${f(lo, 'E', 'W')}` : 'No coordinates');
 		}
 	}
+	// a label set's codes (setCache) and, when it has one, its per-point record (setInfo)
+	async function loadSet(def, quiet = false) {
+		const key = def.key;
+		if (setCache[key]) return true;
+		if (!quiet) $('status').textContent = `Loading the ${def.name.toLowerCase()} labels…`;
+		let b; try { b = await fetchBin(`labels_${key}.bin`); } catch { b = null; }
+		if (!b || b.length !== 2 * def.levels.length * N) { if (!quiet) $('status').textContent = `The ${def.name.toLowerCase()} labels did not load. Try again.`; return false; }
+		setCache[key] = def.levels.map((_, k) => new Uint16Array(b.buffer, 2 * k * N, N));
+		if (def.info) {
+			try {
+				const r = await fetch(url(`info_${key}.txt`));
+				const lines = r.ok ? (await r.text()).split('\n') : [];
+				if (lines.length >= N) setInfo[key] = { cols: def.info, rows: lines, tip: def.tip || '' };
+			} catch { /* the tooltip falls back to the label path */ }
+		}
+		return true;
+	}
 	async function setLabels(key) {
 		if (key === labelKey) return true;
 		if (key) {
 			const def = meta.labelSets.find((x) => x.key === key);
 			if (!def) return false;
-			if (!setCache[key]) {
-				$('status').textContent = `Loading the ${def.name.toLowerCase()} labels…`;
-				let b; try { b = await fetchBin(`labels_${key}.bin`); } catch { b = null; }
-				if (!b || b.length !== 2 * def.levels.length * N) { $('status').textContent = `The ${def.name.toLowerCase()} labels did not load. Try again.`; return false; }
-				setCache[key] = def.levels.map((_, k) => new Uint16Array(b.buffer, 2 * k * N, N));
-				if (def.info) {
-					try {
-						const r = await fetch(url(`info_${key}.txt`));
-						const lines = r.ok ? (await r.text()).split('\n') : [];
-						if (lines.length >= N) setInfo[key] = { cols: def.info, rows: lines, tip: def.tip || '' };
-					} catch { /* the tooltip falls back to the label path */ }
-				}
-			}
+			if (!(await loadSet(def))) return false;
 			if (!alive) return false;
 			setArr = setCache[key]; labelKey = key; curLevels = def.levels;
 			rankNames = def.levels.map((l) => def.names[l]);
