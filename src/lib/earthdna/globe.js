@@ -1698,7 +1698,8 @@ void main() {
 	// (about its pole and toward one, like a drag), twisting turns it about the pole too (rolls the dome and map), pushing
 	// down zooms in.
 	const nav = { a: [0, 0, 0, 0, 0, 0], at: 0 }, NAVK = +(Q.get('navspeed') || 1);
-	const navActive = () => nav.a.some((v) => v !== 0) && performance.now() - nav.at < 1000;  // a lost release ends after 1 s
+	// pushed past the dead zone (a released device rests slightly off zero); a lost release ends after 1 s
+	const navActive = () => nav.a.some((v) => Math.abs(v) >= 0.06) && performance.now() - nav.at < 1000;
 	function applyNav(dt) {
 		const dz = (v) => (Math.abs(v) < 0.06 ? 0 : v), [x, y, z, rx, ry, rz] = nav.a.map(dz);
 		const k = 1.4 * dt * NAVK / Math.sqrt(zoom);
