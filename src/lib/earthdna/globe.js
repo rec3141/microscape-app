@@ -196,7 +196,8 @@ void main() {
 }`, `#version 300 es
 precision mediump float;
 in float vA; out vec4 o;
-void main() { o = vec4(0.62, 0.70, 0.80, vA); }`);
+uniform vec3 uCol;
+void main() { o = vec4(uCol, vA); }`);
 	const bgProg = prog(`#version 300 es
 in vec2 aP; out vec2 vP;
 void main() { vP = aP; gl_Position = vec4(aP, 0.99, 1.0); }`, `#version 300 es
@@ -471,6 +472,7 @@ void main() {
 	async function buildLabels() {
 		const gen0 = ++labelGen, L0 = LL;
 		labelSets = []; dirty = true;
+		if (isGeo(current) && meta.geoLabels?.length) { labelSets = [geoLabels()]; return; }
 		if (labelKey) return buildSetLabels(gen0, L0);
 		const domName = meta.groups.map((g) => g.split(' · ')[0]);
 		const doms = [...new Set(domName)], dIx = domName.map((d) => doms.indexOf(d));
@@ -531,6 +533,13 @@ void main() {
 		});
 		dirty = true;
 	}
+	// place names on a map layout (globe.json geoLabels: places with more than 5 samples, named by their commonest
+	// sample source): a place shows once it would span 26 px at a nominal radius growing with the root of its samples,
+	// so the big sites show at once and the small ones as the view zooms in, and zooming further never hides them
+	function geoLabels() {
+		const u = (x, lo, hi) => Math.round((x - lo) / (hi - lo) * 65535);
+		return meta.geoLabels.map((g) => ({ text: g.text, cls: 'Lg', n: g.n, geo: true, spread: 0.012 * Math.sqrt(g.n), p: toXyz(u(g.lon, -180, 180), u(g.lat, -90, 90)) }));
+	}
 	// the globe's names for a label set (globe.json labelSets, e.g. environment): one level per name tier, the
 	// biggest categories first, anchored like the taxonomy's at the member nearest each category's centroid
 	const SET_MIN = [1000, 200, 60, 25, 10, 5];
@@ -580,9 +589,9 @@ void main() {
 		for (const set of labelSets) {
 			let shownHere = 0;
 			for (const L of set) {
-				if (used >= 55 || shownHere >= 20) break;  // about a third of the earlier 160 / 60
+				if (used >= 55 || shownHere >= (L.geo ? 45 : 20)) break;  // about a third of the earlier 160 / 60
 				const rpx = L.spread * pxR;
-				if (rpx < 26 || rpx > 0.9 * minDim) continue;
+				if (rpx < 26 || (!L.geo && rpx > 0.9 * minDim)) continue;
 				const q = toView(L.p);
 				let x, y;
 				if (!flat) { if (q[2] < 0.15) continue; const w = FOC / (CAM - q[2]); x = q[0] * w; y = q[1] * w; }
@@ -592,7 +601,7 @@ void main() {
 					x = 0.9003163 * lam * Math.cos(t) * 0.5; y = 1.4142136 * Math.sin(t) * 0.5;
 				}
 				const sx = (x * sc[0] + 1) / 2 * w, sy = (1 - y * sc[1]) / 2 * h;
-				const fs = L.cls === 'L0' ? 17 : L.cls === 'L1' ? 13.6 : L.cls === 'L4' ? 11.8 : 12.5, cw = L.cls === 'L0' ? fs * 0.95 : fs * 0.56;
+				const fs = L.cls === 'L0' ? 17 : L.cls === 'L1' ? 13.6 : L.cls === 'L4' || L.cls === 'Lg' ? 11.8 : 12.5, cw = L.cls === 'L0' ? fs * 0.95 : fs * 0.56;
 				const tw = L.text.length * cw, th = fs * 1.3;
 				const x0 = sx - tw / 2, y0 = sy - th / 2;
 				// each label keeps a clear margin (GAPX, GAPY) around it, so the ones shown spread over the globe
@@ -713,16 +722,25 @@ void main() {
 		const a = isGeo(prevLayout) ? 1 : 0, b = isGeo(current) ? 1 : 0;
 		return a + (b - a) * morph.t;
 	}
-	async function loadCoast() {
-		if (!meta.geoLayouts?.length) return;
-		let b; try { const r = await fetch('/earthdna/coast-50m.bin'); if (!r.ok) return; b = await r.arrayBuffer(); } catch { return; }
-		if (!alive) return;
+	// a segment file (int16 lon/lat pairs in 1/100 degree, 8 bytes a segment) as an instanced vertex array
+	async function loadSegments(path) {
+		let b; try { const r = await fetch(path); if (!r.ok) return null; b = await r.arrayBuffer(); } catch { return null; }
+		if (!alive) return null;
 		const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
 		const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Int16Array(b), gl.STATIC_DRAW);
 		const loc = gl.getAttribLocation(coastProg, 'aSeg');
 		gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 4, gl.SHORT, false, 0, 0); gl.vertexAttribDivisor(loc, 1);
-		coast = { vao, n: b.byteLength / 8, land: null }; dirty = true;
-		// land mask (static/earthdna/land-50m.png: Natural Earth 50 m land, 2048 x 1024 equirectangular, north up)
+		return { vao, n: b.byteLength / 8 };
+	}
+	async function loadCoast() {
+		if (!meta.geoLayouts?.length) return;
+		const c = await loadSegments('/earthdna/coast-50m.bin');
+		if (!c) return;
+		coast = { ...c, land: null, rivers: null }; dirty = true;
+		// rivers (static/earthdna/rivers-50m.bin: Natural Earth 50 m river and lake centre-lines)
+		coast.rivers = await loadSegments('/earthdna/rivers-50m.bin'); dirty = true;
+		// land mask (static/earthdna/land-50m.png: Natural Earth 50 m land less its 50 m lakes, 2048 x 1024
+		// equirectangular, north up)
 		try {
 			const r = await fetch('/earthdna/land-50m.png');
 			if (!r.ok) return;
@@ -757,8 +775,17 @@ void main() {
 		gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
 		if (ca > 0.01) {
-			gl.useProgram(coastProg); gl.bindVertexArray(coast.vao);
+			gl.useProgram(coastProg);
 			proj(coastProg);
+			// rivers in the water's colour, then the coastline
+			if (coast.rivers) {
+				gl.bindVertexArray(coast.rivers.vao);
+				gl.uniform3f(gl.getUniformLocation(coastProg, 'uCol'), 0.047, 0.094, 0.157);
+				gl.uniform1f(gl.getUniformLocation(coastProg, 'uAlpha'), 0.9 * ca);
+				gl.drawArraysInstanced(gl.LINES, 0, 2, coast.rivers.n);
+			}
+			gl.bindVertexArray(coast.vao);
+			gl.uniform3f(gl.getUniformLocation(coastProg, 'uCol'), 0.62, 0.70, 0.80);
 			gl.uniform1f(gl.getUniformLocation(coastProg, 'uAlpha'), 0.28 * ca);
 			gl.drawArraysInstanced(gl.LINES, 0, 2, coast.n);
 		}
