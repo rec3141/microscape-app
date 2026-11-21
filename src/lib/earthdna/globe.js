@@ -1012,12 +1012,12 @@ void main() {
 				second = `${lv.charAt(0).toUpperCase()}${lv.slice(1)} · ${c !== NONE && rankNames[r][c] != null ? rankNames[r][c] : 'unclassified'}`;
 			}
 			tip.children[1].textContent = second;
-			// with a taxon picked: its share of this point first, the predominant species after
-			if (picked.length) {
-				tip.children[0].textContent = picked.map((p) => `${fmtShare(p.a[i])} ${p.name}`).join(' · ');
-				const d = document.createElement('div'); d.className = 'm';
-				d.textContent = `Predominant: ${pc}${sp || (g ? g + ' sp.' : 'unclassified')}`;
-				tip.insertBefore(d, tip.children[1]);
+			// with a taxon picked or searched: first the share of the point's own taxon at the rank its colour shows (one
+			// rank below the pick), then any searched taxon's share; the predominant species after
+			const cs = (lastView?.filter || lastView?.mark) && !labelKey ? rankShare(curLevel, i) : '';
+			if (cs || picked.length) {
+				tip.children[0].textContent = [cs, ...picked.map((p) => `${fmtShare(p.a[i])} ${p.name}`)].filter(Boolean).join(' · ');
+				tip.children[1].textContent = `Predominant species: ${pc}${sp || (g ? g + ' sp.' : 'unclassified')}`;
 			}
 			if (flagMode && flags && flags[i] > 0) {
 				const d = document.createElement('div'); d.className = 'w';
@@ -1134,22 +1134,28 @@ void main() {
 		abundCache.set(key, out);
 		return out;
 	}
+	// the share of a point's own taxon at taxonomy level r (globe.json rankPercent, rankpct.bin): '45% Lachnospirales'
+	let rankPct = null;  // level index -> Uint16Array of hundredths of a percent (65535 = none)
+	function rankShare(r, i) {
+		const a = rankPct?.[r], c = rankCode(r, i);
+		if (!a || a[i] === 65535 || c === NONE || rankNames[r][c] == null) return '';
+		const p = a[i] / 100;
+		return `${p >= 10 ? p.toFixed(0) : p >= 1 ? p.toFixed(1) : p.toFixed(2)}% ${rankNames[r][c]}`;
+	}
 	const fmtShare = (b) => {
 		const lo = 100 * meta.contains.min;
 		if (!b) return `<${lo}%`;
 		const p = lo * 10 ** ((b - 1) / 80);
 		return `${p >= 10 ? p.toFixed(0) : p >= 1 ? p.toFixed(1) : p.toFixed(2)}%`;
 	};
-	// the taxa picked in the picker that have shares: a searched taxon, a taxon picked in the taxonomy, or both
+	// the searched taxa whose shares the tooltip gives: one marked with + or the search box, and one a pick sits inside
 	let picked = [], pickedFor = null, markFor = null;
 	async function loadPicked(filter, mark) {
 		pickedFor = filter; markFor = mark; picked = [];
 		if ((!filter && !mark) || !meta.contains?.abund) return;
 		const want = [];
 		if (mark) { const h = containsLookup(mark.name); if (h) want.push([h.rank, h.name]); }
-		if (!filter) filter = { rank: -2 };
-		if (filter.rank === -1 || filter.within) { const h = containsLookup(filter.within ?? filter.name); if (h) want.push([h.rank, h.name]); }
-		if (filter.rank >= 0 && !labelKey) want.push([curLevels[filter.rank], rankNames[filter.rank][filter.code]]);
+		if (filter && (filter.rank === -1 || filter.within)) { const h = containsLookup(filter.within ?? filter.name); if (h) want.push([h.rank, h.name]); }
 		const got = [];
 		for (const [rk, nm] of want) { try { const a = await abundOf(rk, nm); if (a) got.push({ name: nm, a }); } catch { /* no shares for it */ } }
 		if (pickedFor === filter && markFor === mark) picked = got.filter((p, k) => got.findIndex((q) => q.name === p.name) === k);
@@ -1908,6 +1914,15 @@ void main() {
 		rankNames = taxNames = [doms, ...R.levels.slice(1, 5).map((l) => R.names[l]), meta.genera, meta.species];
 		curLevels = R.levels;
 		if (meta.tipPercent) { try { const b = await fetchBin('tippct.bin'); if (b.length === N) tipPct = b; } catch { /* no percentages */ } }
+		if (meta.rankPercent) {
+			try {
+				const b = await fetchBin('rankpct.bin'), L = meta.rankPercent.length;
+				if (b.length === 2 * L * N) {
+					const u = new Uint16Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.length));
+					rankPct = meta.ranks.levels.map((l) => { const q = meta.rankPercent.indexOf(l); return q < 0 ? null : u.subarray(q * N, (q + 1) * N); });
+				}
+			} catch { /* no shares */ }
+		}
 		// Highlight: genome traits (traits.bin, GTDB) and taxonomic disagreements (flags.bin, the label checks)
 		const selEl = $('trait');
 		selEl.options[0].textContent = `All ${unit}`;
