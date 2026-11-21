@@ -10,6 +10,7 @@
 		maxSuggestions?: number;
 		onPick?: ((s: string) => void) | null;
 		onType?: (() => void) | null; // fired on manual edits only — pick() sets the value directly
+		onClear?: (() => void) | null; // given: an × in the box empties it and calls this
 		// Extra strings to search for besides what was typed, so a name that has
 		// been retired can still lead to the one that replaced it. Returns the
 		// query first; anything after it is a synonym and ranks below a direct hit.
@@ -26,6 +27,7 @@
 		maxSuggestions = 8,
 		onPick = null,
 		onType = null,
+		onClear = null,
 		expand = null,
 		weight = null,
 		detail = null
@@ -98,8 +100,17 @@
 		onfocus={() => (focused = true)}
 		onblur={() => setTimeout(() => (focused = false), 150)}
 		onkeydown={handleKeydown}
-		class="mt-1 w-full rounded border border-slate-700 bg-slate-800/60 px-2 py-1 text-sm text-slate-100 placeholder-slate-500 focus:border-ocean-500 focus:outline-none"
+		class="mt-1 w-full rounded border border-slate-700 bg-slate-800/60 px-2 py-1 {onClear && value ? 'pr-7' : ''} text-sm text-slate-100 placeholder-slate-500 focus:border-ocean-500 focus:outline-none"
 	/>
+	{#if onClear && value}
+		<button
+			type="button"
+			aria-label="Clear the search"
+			title="Clear"
+			class="absolute right-1 bottom-0.5 px-1.5 py-0.5 text-base leading-none text-slate-400 hover:text-slate-100"
+			onclick={() => { value = ''; onClear?.(); }}
+		>&times;</button>
+	{/if}
 	{#if suggestions.length > 0 && focused}
 		<ul class="absolute z-50 mt-1 w-full rounded border border-slate-700 bg-slate-900 shadow-lg max-h-48 overflow-y-auto">
 			{#each suggestions as s, i}

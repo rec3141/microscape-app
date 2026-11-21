@@ -7,7 +7,7 @@
 
 	interface Props {
 		taxa: Taxa;
-		view: (level: number, filter: Taxon | null) => RankedTaxon[];
+		view: (level: number, filter: Taxon | null, mark?: Taxon | null) => RankedTaxon[];
 		asvsShown?: boolean;
 		version?: number; // bumped when the ASVs arrive, so the ASV counts refresh
 	}
@@ -18,6 +18,8 @@
 	let base = $state(taxa.start ?? Math.max(0, taxa.levels.indexOf('class')));
 	let stack = $state<Taxon[]>([]);
 	let query = $state('');
+	// a row's + marks its taxon: the globe shows every point carrying it while the list stays where it is
+	let mark = $state<Taxon | null>(null);
 	let filter = $derived(stack.length ? stack[stack.length - 1] : null);
 	// a "contains" search lists its points at the Colour by level; a picked taxon lists the level below it, and
 	// one picked from a "contains" list keeps to the points of that search
@@ -29,7 +31,7 @@
 	let shown = $state(PAGE);
 	$effect(() => {
 		void version;
-		ranked = view(level, filter);
+		ranked = view(level, filter, mark);
 		shown = PAGE;
 	});
 
@@ -39,6 +41,7 @@
 	export function show(lineage: Taxon[] | null) {
 		stack = lineage ?? [];
 		query = '';
+		mark = null;
 	}
 
 	// a crumb names its taxon; a "contains" search says so
@@ -46,13 +49,19 @@
 	// with "contains" data and taxonomy shown, + on a row searches for that taxon: every point carrying it
 	let anyOf = $derived(!!taxa.searchNames && taxa.noun !== 'category');
 	async function searchFor(name: string) {
-		await navigateToTaxon(name);
-		query = name;
+		const found = await taxa.find(name);
+		if (found?.length === 1 && found[0].contains) { mark = found[0]; query = name; markFromSearch = false; }
+		else if (found) show(found);
 	}
 
+	// a search goes to the taxon's place in the list (its lineage of predominant taxa) and, where the globe knows
+	// which points contain it, shows all of those; with no such place the list shows the points containing it
+	let markFromSearch = false;
 	async function navigateToTaxon(name: string) {
-		const lineage = await taxa.find(name);
-		if (lineage) show(lineage);
+		const found = await taxa.find(name);
+		const at = found?.length === 1 && found[0].contains ? taxa.lineage?.(name) : null;
+		if (at) { show(at); mark = found![0]; query = name; markFromSearch = true; }
+		else if (found) show(found);
 	}
 </script>
 
@@ -65,12 +74,13 @@
 		weight={taxa.count}
 		detail={taxa.describe}
 		onPick={navigateToTaxon}
+		onClear={() => { if (!mark || markFromSearch) stack = []; mark = null; }}
 	/>
 
 	<!-- with a taxon picked the menu reads Selected; choosing a level there clears the pick -->
 	<label class="rankpick">
 		<span>Colour by</span>
-		<select value={stack.length ? -1 : base} onchange={(e) => { base = +e.currentTarget.value; stack = []; query = ""; }}>
+		<select value={stack.length ? -1 : base} onchange={(e) => { base = +e.currentTarget.value; stack = []; query = ""; mark = null; }}>
 			{#if stack.length}<option value={-1}>Selected</option>{/if}
 			{#each taxa.levels as l, i}
 				<option value={i}>{taxa.predominant ? `Predominant ${l}` : cap(l)}</option>

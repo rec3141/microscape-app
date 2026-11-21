@@ -9,7 +9,7 @@ export interface GlobeRun {
 
 export interface Globe {
 	destroy: () => void;
-	view: (level: number, filter: Taxon | null) => RankedTaxon[];
+	view: (level: number, filter: Taxon | null, mark?: Taxon | null) => RankedTaxon[];
 }
 
 export function mountGlobe(
