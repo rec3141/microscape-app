@@ -84,7 +84,7 @@
 			{#if familyOf(ds).length > 1}
 				<!-- the family's globes; each is its own page, so picking one loads it -->
 				<div class="row">
-					<label class="rankpick highlight" for="variant">{ds.unit[1][0].toUpperCase() + ds.unit[1].slice(1)}
+					<label class="rankpick highlight" for="variant">{ds.familyLabel ?? ds.unit[1][0].toUpperCase() + ds.unit[1].slice(1)}
 						<select id="variant" value={ds.slug} onchange={(e) => { const v = e.currentTarget.value; if (v !== ds.slug && !v.startsWith('model:')) location.assign(`/earthdna/${v}${keep}`); }}>
 							{#each familyOf(ds) as v (v.slug)}<option value={v.slug}>{v.variant ?? v.name}</option>{/each}
 						</select>
