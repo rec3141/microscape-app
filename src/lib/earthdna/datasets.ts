@@ -17,6 +17,9 @@
  *        placements (made against silva144-2) don't belong on them.
  * motus: in static/earthdna/motus41/, one point per mOTUs-db 4.1 mOTU detected in a metagenome (earthdna
  *        pipeline/build_motus.sh); models '' (marker-gene 5-mers) and abund (co-occurrence across metagenomes).
+ * motus-genomes: every 10 kb fragment of the 124k mOTU representative genomes (24.1M) embedded by its 5-mers (earthdna
+ *        pipeline/build_motus_genomes.sh, a 6.05M-fragment reference on one 20 GB GPU); the globe shows 6.5% of the
+ *        reference + 1.5M projected fragments. nginx from /data/web/earthdna-ref/motus41genomes/.
  * motus-samples: in static/earthdna/motus41-samples/, one point per metagenome, similarity layout only.
  * motus-samples-map: in static/earthdna/motus41-samples-map/, the metagenomes with coordinates on a map layout
  *        (globe.json geoLayouts, not turned).
@@ -51,6 +54,8 @@ export interface Dataset {
 	family?: string;
 	/** this globe's entry in that menu */
 	variant?: string;
+	/** that menu's label; default the globe's plural unit */
+	familyLabel?: string;
 }
 
 export const DATASETS: Dataset[] = [
@@ -157,7 +162,27 @@ export const DATASETS: Dataset[] = [
 		sourceLink: { text: 'motus-db.org', href: 'https://motus-db.org' },
 		preview: '/earthdna/previews/motus.webp',
 		method: 'marker gene 5-mers or co-occurrence across metagenomes (pick one under Model)',
-		pointSize: 1.5
+		pointSize: 1.5,
+		family: 'motus',
+		variant: 'mOTUs (120k)',
+		familyLabel: 'Points'
+	},
+	{
+		slug: 'motus-genomes',
+		name: 'mOTUs',
+		base: '/earthdna/motus41genomes',
+		version: 'motus41genomes-ref6m-1',
+		release: null,
+		count: 2966145,
+		unit: ['fragment', 'fragments'],
+		blurb: '10 kb fragments of the representative genome of every mOTUs-db 4.1 mOTU (124k genomes, 24 million fragments), placed by their 5-mers.',
+		source: '10 kb fragments of the mOTUs-db 4.1 representative genomes (GTDB r226 taxonomy)',
+		sourceLink: { text: 'motus-db.org', href: 'https://motus-db.org' },
+		preview: '/earthdna/previews/motus-genomes.webp',
+		method: 'genome 5-mers',
+		family: 'motus',
+		variant: 'Genome fragments (3.0M, 55 MB)',
+		familyLabel: 'Points'
 	},
 	{
 		slug: 'motus-samples',
