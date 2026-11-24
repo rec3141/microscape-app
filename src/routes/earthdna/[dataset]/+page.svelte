@@ -4,7 +4,7 @@
 	import { mountGlobe } from '$lib/earthdna/globe.js';
 	import TaxonPicker from '$lib/earthdna/TaxonPicker.svelte';
 	import type { RankedTaxon, Taxa, Taxon } from '$lib/earthdna/taxa';
-	import { PILLS, familyOf, type Dataset } from '$lib/earthdna/datasets';
+	import { PILLS, familyOf, familyMenu, type Dataset } from '$lib/earthdna/datasets';
 	import '../earthdna.css';
 
 	interface GlobeRun {
@@ -28,6 +28,11 @@
 	let view = $state<(level: number, filter: Taxon | null) => RankedTaxon[]>(() => []);
 	// a wall screen (globe.js ?wall, ?sync) stays one when it switches globe: the links to other globes keep its settings
 	const WALL_KEYS = ['sync', 'wall', 'screen', 'bezel', 'lead', 'ui', 'navspeed'];
+	// the menu entry the page opens on: ?model= names one of this globe's models
+	const startEntry = $derived.by(() => {
+		const m = page.url.searchParams.get('model');
+		return m && ds.models?.some((x) => x.key === m) ? `${ds.slug}:${m}` : ds.slug;
+	});
 	const keep = $derived.by(() => {
 		const q = new URLSearchParams();
 		for (const k of WALL_KEYS) { const v = page.url.searchParams.get(k); if (v !== null) q.set(k, v); }
@@ -85,8 +90,15 @@
 				<!-- the family's globes; each is its own page, so picking one loads it -->
 				<div class="row">
 					<label class="rankpick highlight" for="variant">{ds.familyLabel ?? ds.unit[1][0].toUpperCase() + ds.unit[1].slice(1)}
-						<select id="variant" value={ds.slug} onchange={(e) => { const v = e.currentTarget.value; if (v !== ds.slug && !v.startsWith('model:')) location.assign(`/earthdna/${v}${keep}`); }}>
-							{#each familyOf(ds) as v (v.slug)}<option value={v.slug}>{v.variant ?? v.name}</option>{/each}
+						<!-- another globe's entry loads that page (?model= picks its layout); this globe's models switch in place (globe.js) -->
+						<select id="variant" value={startEntry} onchange={(e) => {
+							const [slug, m] = e.currentTarget.value.split(':');
+							if (slug === ds.slug) return;
+							const q = new URLSearchParams(keep);
+							if (m) q.set('model', m);
+							location.assign(`/earthdna/${slug}${q.size ? `?${q}` : ''}`);
+						}}>
+							{#each familyMenu(ds) as v (v.value)}<option value={v.value}>{v.text}</option>{/each}
 						</select>
 					</label>
 				</div>

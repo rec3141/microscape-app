@@ -56,6 +56,9 @@ export interface Dataset {
 	variant?: string;
 	/** that menu's label; default the globe's plural unit */
 	familyLabel?: string;
+	/** a family globe's models (globe.json `models`, first = the unsuffixed layouts), each its own entry in the menu,
+	 *  so every globe of the family shows the same menu */
+	models?: { key: string; label: string }[];
 }
 
 export const DATASETS: Dataset[] = [
@@ -165,7 +168,11 @@ export const DATASETS: Dataset[] = [
 		pointSize: 1.5,
 		family: 'motus',
 		variant: 'mOTUs (120k)',
-		familyLabel: 'Points'
+		familyLabel: 'Points',
+		models: [
+			{ key: '', label: 'Marker gene 5-mers' },
+			{ key: 'abund', label: 'Co-occurrence' }
+		]
 	},
 	{
 		slug: 'motus-genomes',
@@ -241,6 +248,14 @@ export const MOVED: Record<string, string> = { evo2: 'models' };
 export const datasetBySlug = (slug: string) => DATASETS.find((d) => d.slug === slug);
 
 /** the other globes in d's family, d included (just d when it has none) */
+/** a family's menu: one entry per globe, or per model of a globe that has several; value `slug` or `slug:model` */
+export const familyMenu = (d: Dataset) =>
+	familyOf(d).flatMap((v) =>
+		v.models && v.models.length > 1
+			? v.models.map((m) => ({ value: m.key ? `${v.slug}:${m.key}` : v.slug, text: `${v.variant ?? v.name} · ${m.label}` }))
+			: [{ value: v.slug, text: v.variant ?? v.name }]
+	);
+
 export const familyOf = (d: Dataset) => (d.family ? DATASETS.filter((x) => x.family === d.family) : [d]);
 
 /** one globe per pill and landing card: each family's first */
