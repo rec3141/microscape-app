@@ -1880,23 +1880,20 @@ void main() {
 		// a globe built without a sculpted layout (globe.json layouts) has nothing for Shaped by to switch to
 		if (meta.layouts && !meta.layouts.includes('sculpt')) $('lSculpt').closest('.row').hidden = true;
 		for (const [id, n] of [['lSim', 'similarity'], ['lSculpt', 'sculpt']]) $(id).setAttribute('aria-pressed', n === current ? 'true' : 'false');
-		// Model: which embedding placed the points (the DNA-model globe); the first entry's layouts carry no suffix
-		// a globe in a family (the Metagenomes menu) lists its models there, in place of its own entry, so one menu
-		// picks both the globe and how it is laid out
+		// Model: which embedding placed the points. A globe in a family lists its models in the family menu (the page
+		// renders it from datasets.ts, so every globe of the family shows the same entries, valued slug:model); the
+		// entries for this globe switch the layout here, the others load their page. ?model= opens on that model.
 		const vEl = $('variant');
 		if (meta.models?.length > 1 && vEl) {
-			// the globe's own entry keeps its value (the page keeps the menu on it) and stands for the first model
-			const own = [...vEl.options].find((o) => o.selected) || vEl.options[0], slug = own.value, text = own.textContent;
-			const val = (key) => (key ? `model:${key}` : slug);
-			own.textContent = `${text} · ${meta.models[0].label}`;
-			let after = own;
-			for (const x of meta.models.slice(1)) { const o = new Option(`${text} · ${x.label}`, val(x.key)); after.after(o); after = o; }
+			const slug = vEl.value.split(':')[0];
+			const val = (key) => (key ? `${slug}:${key}` : slug);
 			on(vEl, 'change', async () => {
-				const v = vEl.value;
-				if (v !== slug && !v.startsWith('model:')) return;  // another globe: the page loads it
-				const key = v === slug ? '' : v.slice(6);
+				const [s, key = ''] = vEl.value.split(':');
+				if (s !== slug) return;  // another globe: the page loads it
 				if (!(await showLayout(shape, key))) vEl.value = val(model);
 			});
+			const want = Q.get('model');
+			if (want && meta.models.some((x) => x.key === want) && !(await showLayout(shape, want)) && alive) vEl.value = val(model);
 		} else if (meta.models?.length > 1) {
 			const mEl = $('model');
 			for (const x of meta.models) mEl.add(new Option(x.label, x.key));
