@@ -17,9 +17,10 @@
  *        placements (made against silva144-2) don't belong on them.
  * motus: in static/earthdna/motus41/, one point per mOTUs-db 4.1 mOTU detected in a metagenome (earthdna
  *        pipeline/build_motus.sh); models '' (marker-gene 5-mers) and abund (co-occurrence across metagenomes).
- * motus-genomes: every 10 kb fragment of the 124k mOTU representative genomes (24.1M) embedded by its 5-mers (earthdna
- *        pipeline/build_motus_genomes.sh, a 6.05M-fragment reference on one 20 GB GPU); the globe shows 6.5% of the
- *        reference + 1.5M projected fragments. nginx from /data/web/earthdna-ref/motus41genomes/.
+ * motus-genomes, -full, -all: every 10 kb fragment of the 124k mOTU representative genomes (24.1M) embedded together
+ *        by its 5-mers (fastsne_cpu --sphere on Grex genoa, as gtdb-all), shown at gtdb's three densities: an 11% and a
+ *        30% id-hash subset (earthdna pipeline/gtdb_globe_set.py --ref-shown 0.11 / 0.30 --extra 0) and all of them
+ *        (pipeline/pack_gtdb_all.py, taxonomy once per genome). nginx from /data/web/earthdna-ref/motus41genomes{,full,all}/.
  * motus-samples: in static/earthdna/motus41-samples/, one point per metagenome, similarity layout only.
  * motus-samples-map: in static/earthdna/motus41-samples-map/, the metagenomes with coordinates on a map layout
  *        (globe.json geoLayouts, not turned).
@@ -178,17 +179,51 @@ export const DATASETS: Dataset[] = [
 		slug: 'motus-genomes',
 		name: 'mOTUs',
 		base: '/earthdna/motus41genomes',
-		version: 'motus41genomes-all-1',
+		version: 'motus41genomes-all-11',
 		release: null,
-		count: 2968000,
+		count: 2648670,
 		unit: ['fragment', 'fragments'],
-		blurb: '10 kb fragments of the representative genome of every mOTUs-db 4.1 mOTU (124k genomes, 24 million fragments), placed by their 5-mers.',
+		blurb: '10 kb fragments of the representative genome of every mOTUs-db 4.1 mOTU (124k genomes, 24 million fragments, all embedded together), placed by their 5-mers: an 11% sample.',
 		source: '10 kb fragments of the mOTUs-db 4.1 representative genomes (GTDB r226 taxonomy)',
 		sourceLink: { text: 'motus-db.org', href: 'https://motus-db.org' },
 		preview: '/earthdna/previews/motus-genomes.webp',
 		method: 'genome 5-mers',
 		family: 'motus',
-		variant: 'Genome fragments (3.0M, 55 MB)',
+		variant: 'Genome fragments 11% (2.6M, 50 MB)',
+		familyLabel: 'Points'
+	},
+	{
+		slug: 'motus-genomes-full',
+		name: 'mOTUs',
+		base: '/earthdna/motus41genomesfull',
+		version: 'motus41genomes-all-30',
+		release: null,
+		count: 7223276,
+		unit: ['fragment', 'fragments'],
+		blurb: '30% of the 10 kb fragments of the mOTUs-db 4.1 representative genomes (7.2 million): a big download (about 130 MB) for a desktop with a good GPU.',
+		source: '10 kb fragments of the mOTUs-db 4.1 representative genomes (GTDB r226 taxonomy), a 30% sample',
+		sourceLink: { text: 'motus-db.org', href: 'https://motus-db.org' },
+		preview: '/earthdna/previews/motus-genomes.webp',
+		method: 'genome 5-mers',
+		family: 'motus',
+		variant: 'Genome fragments 30% (7.2M, 135 MB)',
+		familyLabel: 'Points'
+	},
+	{
+		slug: 'motus-genomes-all',
+		name: 'mOTUs',
+		base: '/earthdna/motus41genomesall',
+		version: 'motus41genomes-all-100',
+		release: null,
+		count: 24073986,
+		unit: ['fragment', 'fragments'],
+		blurb: 'All 24 million 10 kb fragments of the mOTUs-db 4.1 representative genomes, embedded together in a single t-SNE. A 275 MB download and about 700 MB of memory: desktop only.',
+		source: '10 kb fragments of the mOTUs-db 4.1 representative genomes (GTDB r226 taxonomy), all of them',
+		sourceLink: { text: 'motus-db.org', href: 'https://motus-db.org' },
+		preview: '/earthdna/previews/motus-genomes.webp',
+		method: 'genome 5-mers',
+		family: 'motus',
+		variant: 'Genome fragments 100% (24.1M, 275 MB)',
 		familyLabel: 'Points'
 	},
 	{

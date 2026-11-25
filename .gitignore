@@ -20,3 +20,5 @@ static/earthdna/gtdb226all
 /node_modules.old
 /.deploy-deps
 static/earthdna/motus41genomes
+static/earthdna/motus41genomesfull
+static/earthdna/motus41genomesall
